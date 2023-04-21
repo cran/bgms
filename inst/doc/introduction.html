@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+
+
+<title>Introducing bgms</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+<style type="text/css">
+
+div.csl-bib-body { }
+div.csl-entry {
+clear: both;
+}
+.hanging div.csl-entry {
+margin-left:2em;
+text-indent:-2em;
+}
+div.csl-left-margin {
+min-width:2em;
+float:left;
+}
+div.csl-right-inline {
+margin-left:2em;
+padding-left:1em;
+}
+div.csl-indent {
+margin-left: 2em;
+}
+</style>
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Introducing bgms</h1>
+
+
+
+<style>
+body {
+text-align: justify}
+</style>
+<div id="introduction" class="section level2">
+<h2>Introduction</h2>
+<p>This example demonstrates how to use bgms for Bayesian analysis of
+binary or ordinal data with a special network model called a Markov
+Random Field (MRF) model. To learn more about the MRF model, check out
+<span class="citation">Marsman &amp; Haslbeck (<a href="#ref-MarsmanHaslbeck_2023_ordinal" role="doc-biblioref">2023</a>)</span>, and to learn more about the
+Bayesian analysis of network models, check out <span class="citation">Huth et al. (<a href="#ref-HuthEtAl_2023" role="doc-biblioref">2023</a>)</span>. A paper on the <code>bgms</code>
+software is coming soon.</p>
+<p>We’ll examine real data on PTSD symptoms from 362 Chinese adults who
+survived the Wenchuan earthquake but tragically lost a child <span class="citation">(<a href="#ref-McNallyEtAl_2015" role="doc-biblioref">McNally et al., 2015</a>)</span>. The data comes
+from a 17-question survey where participants rated how much each symptom
+bothered them in the past month on a scale from “not at all” to
+“extremely.”</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(bgms)</span></code></pre></div>
+</div>
+<div id="example-1-em" class="section level1">
+<h1>Example 1 – EM</h1>
+<p>In this initial example, we’ll demonstrate how to quickly estimate a
+network using the bgm.em function. This method is similar to traditional
+network estimation approaches that seek a single optimal structure while
+minimizing model complexity. Unlike the complete Bayesian analysis of
+networks we’ll explore later, this method employs the EM algorithm to
+find an optimal structure <span class="citation">(<a href="#ref-MarsmanEtAl_2022_rbinnet" role="doc-biblioref">Marsman et
+al., 2022</a>)</span>. The goal is to reduce the edge weights of missing
+connections to a value near zero, without shrinking the edge weights of
+existing connections.</p>
+<div id="usage" class="section level2">
+<h2>Usage</h2>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bgm.em</span>(</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  x,</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">precision =</span> <span class="fl">0.975</span>,</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">convergence_criterion =</span> <span class="fu">sqrt</span>(.Machine<span class="sc">$</span>double.eps),</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">theta =</span> <span class="fl">0.5</span>,</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">hierarchical =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">indicator_alpha =</span> <span class="dv">1</span>,</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">indicator_beta =</span> <span class="dv">1</span>,</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">maximum_iterations =</span> <span class="dv">1000</span>,</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">threshold_alpha =</span> <span class="dv">1</span>,</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">threshold_beta =</span> <span class="dv">1</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div>
+</div>
+<div id="arguments" class="section level2">
+<h2>Arguments</h2>
+<ul>
+<li><code>x</code>: A matrix with <code>n</code> rows and <code>p</code>
+columns, containing binary and ordinal variables for <code>n</code>
+independent observations and <code>p</code> variables in the network.
+Variables are recoded as non-negative integers (0, 1, …, m) if not done
+already. Unobserved categories are collapsed into other categories after
+recoding. See <code>reformat_data</code> for details.</li>
+<li><code>precision</code>: A value between 0 and 1 representing the
+desired precision for edge selection, equal to one minus the desired
+type-1 error rate. Default is 0.975.</li>
+<li><code>convergence_criterion</code>: The criterion for the
+pseudoposterior values’ convergence in the EM algorithm. Default is
+<code>sqrt(.Machine$double.eps)</code>.</li>
+<li><code>theta</code>: The prior inclusion probability. A value of 0.5,
+combined with hierarchical = FALSE, specifies a uniform prior on the
+network structures’ space.</li>
+<li><code>hierarchical</code>: If TRUE, a beta prior distribution with
+hyperparameters alpha and beta is imposed on the prior inclusion
+probability theta. A uniform prior on inclusion probability, using a
+beta with <code>alpha = beta = 1</code>, specifies a uniform prior on
+network structure complexity.</li>
+<li><code>indicator_alpha</code>, <code>indicator_beta</code>:
+Hyperparameters for the beta prior distribution on the prior inclusion
+probability theta when <code>hierarchical = TRUE</code>. Default is
+1.</li>
+<li><code>maximum_iterations</code>: Maximum number of EM iterations
+used. Default is 1e3. A warning appears if the procedure hasn’t
+converged within the maximum number of iterations.</li>
+<li><code>threshold_alpha</code>, <code>threshold_beta</code>: Shape
+parameters for the Beta-prime prior on thresholds. Default is 1.</li>
+</ul>
+</div>
+<div id="output" class="section level2">
+<h2>Output</h2>
+<p>The output is a list containing:</p>
+<ul>
+<li><code>interactions</code>: A matrix with <code>p</code> rows and
+<code>p</code> columns, containing the pairwise association estimates in
+the off-diagonal elements.</li>
+<li><code>gamma</code>: A matrix with <code>p</code> rows and
+<code>p</code> columns, containing the expected values of edge inclusion
+variables (local posterior probabilities of edge inclusion).</li>
+<li><code>thresholds</code>: A matrix with <code>p</code> rows and
+<code>max(m)</code> columns, containing the category thresholds for each
+node.</li>
+<li><code>theta</code> (if <code>hierarchical == TRUE</code>): A numeric
+value representing the modal estimate of the prior inclusion
+probability.</li>
+</ul>
+<p>In summary, the list includes matrices for interactions, gamma, and
+thresholds, along with the prior inclusion probability theta when
+<code>hierarchical = TRUE</code>.</p>
+</div>
+<div id="analysis" class="section level2">
+<h2>Analysis</h2>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="fu">bgm.em</span>(<span class="at">x =</span> Wenchuan)</span></code></pre></div>
+<p>Now let’s show the estimated edge weights and their inclusion
+probabilities in a plot.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">6</span>, <span class="dv">5</span>, <span class="dv">1</span>, <span class="dv">1</span>))</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x =</span> fit<span class="sc">$</span>interactions[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>interactions)], </span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> fit<span class="sc">$</span>gamma[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>gamma)], <span class="at">ylim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>), </span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">xlab =</span> <span class="st">&quot;&quot;</span>, <span class="at">ylab =</span> <span class="st">&quot;&quot;</span>, <span class="at">axes =</span> <span class="cn">FALSE</span>, <span class="at">pch =</span> <span class="dv">21</span>, <span class="at">bg =</span> <span class="st">&quot;#bfbfbf&quot;</span>, <span class="at">cex =</span> <span class="fl">1.3</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> <span class="dv">0</span>, <span class="at">lty =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;#bfbfbf&quot;</span>)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> <span class="dv">1</span>, <span class="at">lty =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;#bfbfbf&quot;</span>)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> .<span class="dv">5</span>, <span class="at">lty =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;#bfbfbf&quot;</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="st">&quot;Posterior mode edge weight&quot;</span>, <span class="at">side =</span> <span class="dv">1</span>, <span class="at">line =</span> <span class="dv">3</span>, <span class="at">cex =</span> <span class="fl">1.7</span>)</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="st">&quot;(Local) posterior inclusion probability&quot;</span>, <span class="at">side =</span> <span class="dv">2</span>, <span class="at">line =</span> <span class="dv">3</span>, <span class="at">cex =</span> <span class="fl">1.7</span>)</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">1</span>) </span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">2</span>, <span class="at">las =</span> <span class="dv">1</span>)</span></code></pre></div>
+<p>In the plot above, we observe that edge values close to zero are
+associated with low inclusion probabilities, while non-zero edge values
+have probabilities close to one. It is crucial to understand that these
+estimates are not actual posterior inclusion probabilities.</p>
+<p>The goal of the EM algorithm is to identify the most likely network
+model, and to achieve this, it pushes the estimated inclusion
+probabilities towards extreme values (either 0 or 1). As a result, the
+estimated probabilities don’t represent the probability that the
+observed data come from a network with the edge in question (a posterior
+inclusion probability). Instead, they indicate the probability that the
+edge should be included in the most likely model.</p>
+<p>When using EM edge selection, a median probability model is a network
+model that includes edges with a probability of 0.5 or higher. This
+approach selects the most likely network structure as the EM algorithm
+pushes inclusion probabilities towards extreme values. However, this
+could lead to a local optimum, implying that other, more optimal network
+structures may exist. Therefore, we refer to this as the local median
+probability model.</p>
+<p>Here is some code to extract and plot the local median probability
+network:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(qgraph) <span class="co">#For plotting the estimated network</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>posterior.inclusion <span class="ot">&lt;-</span> fit<span class="sc">$</span>gamma[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>gamma)]</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> fit<span class="sc">$</span>interactions[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>interactions)]</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>tmp[posterior.inclusion <span class="sc">&lt;</span> <span class="fl">0.5</span>] <span class="ot">=</span> <span class="dv">0</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>median.prob.model <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="dv">0</span>, <span class="at">nrow =</span> <span class="fu">ncol</span>(Wenchuan), <span class="at">ncol =</span> <span class="fu">ncol</span>(Wenchuan))</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>median.prob.model[<span class="fu">lower.tri</span>(median.prob.model)] <span class="ot">&lt;-</span> tmp</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>median.prob.model <span class="ot">&lt;-</span> median.prob.model <span class="sc">+</span> <span class="fu">t</span>(median.prob.model)</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(median.prob.model) <span class="ot">&lt;-</span> <span class="fu">colnames</span>(Wenchuan)</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(median.prob.model) <span class="ot">&lt;-</span> <span class="fu">colnames</span>(Wenchuan)</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a><span class="fu">qgraph</span>(median.prob.model, </span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>      <span class="at">theme =</span> <span class="st">&quot;TeamFortress&quot;</span>, </span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>      <span class="at">maximum =</span> .<span class="dv">5</span>,</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>      <span class="at">fade =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="fu">c</span>(<span class="st">&quot;#f0ae0e&quot;</span>), <span class="at">vsize =</span> <span class="dv">10</span>, <span class="at">repulsion =</span> .<span class="dv">9</span>, </span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>      <span class="at">label.cex =</span> <span class="fl">1.1</span>, <span class="at">label.scale =</span> <span class="st">&quot;FALSE&quot;</span>, </span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>      <span class="at">labels =</span> <span class="fu">colnames</span>(Wenchuan))</span></code></pre></div>
+<p>This method offers a quick and computationally efficient way to start
+exploring our data. It estimates a single network structure that seems
+to best fit the data we have. However, it doesn’t show how uncertain
+this estimate is or whether other plausible structures could also fit
+the data. In contrast, Bayesian model averaging (BMA) considers all
+possible network structures and their probabilities.</p>
+<p>BMA combines information from multiple network structures to create a
+more robust and accurate representation of variable relationships. By
+weighting each network’s contribution based on its posterior
+probability, BMA addresses model uncertainty, resulting in more nuanced
+and stable outcomes compared to the median probability model using EM
+variable selection.</p>
+</div>
+</div>
+<div id="example-2-bma" class="section level1">
+<h1>Example 2 – BMA</h1>
+<p>A comprehensive Bayesian analysis of the data considers both the
+network structure and its corresponding parameters. As numerous
+structures could underlie our network, we employ simulation-based
+methods to investigate the posterior distribution of network structures
+and parameters <span class="citation">(<a href="#ref-MarsmanHaslbeck_2023_ordinal" role="doc-biblioref">Marsman
+&amp; Haslbeck, 2023</a>)</span>. The <code>bgm</code> function performs
+this task, iteratively simulating values from the posterior distribution
+of network structures and parameters. Though this method takes more time
+compared to the previously discussed EM approach, it offers deeper
+insights.</p>
+<div id="usage-1" class="section level2">
+<h2>Usage</h2>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bgm</span>(</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  x,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">iter =</span> <span class="dv">10000</span>,</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">burnin =</span> <span class="dv">1000</span>,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">interaction_prior =</span> <span class="fu">c</span>(<span class="st">&quot;UnitInfo&quot;</span>, <span class="st">&quot;Cauchy&quot;</span>),</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">cauchy_scale =</span> <span class="fl">2.5</span>,</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">threshold_alpha =</span> <span class="dv">1</span>,</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">threshold_beta =</span> <span class="dv">1</span>,</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">display_progress =</span> <span class="cn">TRUE</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div>
+</div>
+<div id="arguments-1" class="section level2">
+<h2>Arguments</h2>
+<ul>
+<li><p><code>x</code>: A matrix with <code>n</code> rows and
+<code>p</code> columns, containing binary and ordinal variables for
+<code>n</code> independent observations and <code>p</code> variables in
+the network. Variables are recoded as non-negative integers (0, 1, …, m)
+if not done already. Unobserved categories are collapsed into other
+categories after recoding. See <code>reformat_data</code> for
+details.</p></li>
+<li><p><code>iter</code>: The number of iterations of the Gibbs sampler.
+Defaults to <code>1e4</code>. For better estimates, it is recommended to
+run the procedure for at least <code>1e5</code> iterations.</p></li>
+<li><p><code>burnin</code>: The number of burnin iterations. The output
+of the Gibbs sampler is stored after burnin iterations.</p></li>
+<li><p><code>interaction_prior</code>: The prior distribution for the
+interaction effects. Currently, two prior densities are implemented: The
+Unit Information prior (<code>interaction_prior = &quot;UnitInfo&quot;</code>) and
+the Cauchy prior (<code>interaction_prior = &quot;Cauchy&quot;</code>). Defaults
+to <code>&quot;UnitInfo&quot;</code>.</p></li>
+<li><p><code>cauchy_scale</code>: The scale of the Cauchy prior for
+interactions. Defaults to <code>2.5</code>.</p></li>
+<li><p><code>threshold_alpha, threshold_beta</code>: The shape
+parameters of the Beta-prime prior for the thresholds. Defaults to
+<code>1</code>.</p></li>
+<li><p><code>save</code>: Should the function collect and return all
+samples from the Gibbs sampler (<code>save = TRUE</code>)? Or should it
+only return the (model-averaged) posterior means
+(<code>save = FALSE</code>)? Defaults to FALSE.</p></li>
+<li><p><code>display_progress</code>: Should the function show a
+progress bar (<code>display_progress = TRUE</code>)? Or not
+(<code>display_progress = FALSE</code>)? Defaults to TRUE.</p></li>
+</ul>
+</div>
+<div id="output-1" class="section level2">
+<h2>Output</h2>
+<p>If <code>save = FALSE</code> (the default), the result is a list
+containing the following matrices:</p>
+<ul>
+<li><code>gamma</code>: A matrix with <code>p</code> rows and
+<code>p</code> columns, containing posterior inclusion probabilities of
+individual edges.</li>
+<li><code>interactions</code>: A matrix with <code>p</code> rows and
+<code>p</code> columns, containing model-averaged posterior means of the
+pairwise associations.</li>
+<li><code>thresholds</code>: A matrix with <code>p</code> rows and
+<code>max(m)</code> columns, containing model-averaged category
+thresholds.</li>
+</ul>
+<p>If <code>save = TRUE</code>, the result is a list containing:</p>
+<ul>
+<li><code>samples.gamma</code>: A matrix with <code>iter</code> rows and
+<code>p * (p - 1) / 2</code> columns, containing the edge inclusion
+indicators from every iteration of the Gibbs sampler.</li>
+<li><code>samples.interactions</code>: A matrix with <code>iter</code>
+rows and <code>p * (p - 1) / 2</code> columns, containing parameter
+states from every iteration of the Gibbs sampler for the pairwise
+associations.</li>
+<li><code>samples.thresholds</code>: A matrix with <code>iter</code>
+rows and <code>sum(m)</code> columns, containing parameter states from
+every iteration of the Gibbs sampler for the category thresholds.</li>
+</ul>
+<p>Column averages of these matrices provide the model-averaged
+posterior means.</p>
+</div>
+<div id="analysis-1" class="section level2">
+<h2>Analysis</h2>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span>  <span class="fu">bgm</span>(<span class="at">x =</span> Wenchuan)</span></code></pre></div>
+<p>To save time, we ran the algorithm using the default number of
+iterations, which is 10,000. However, this may not be enough to fully
+explore the posterior distribution of the network structures and
+parameters. To obtain reliable and accurate estimates, we recommend
+increasing the number of iterations to 100,000 or more.</p>
+<p>Let’s reproduce the plot from the previous example.</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">6</span>, <span class="dv">5</span>, <span class="dv">1</span>, <span class="dv">1</span>))</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x =</span> fit<span class="sc">$</span>interactions[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>interactions)], </span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>     <span class="at">y =</span> fit<span class="sc">$</span>gamma[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>gamma)], <span class="at">ylim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>), </span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab =</span> <span class="st">&quot;&quot;</span>, <span class="at">ylab =</span> <span class="st">&quot;&quot;</span>, <span class="at">axes =</span> <span class="cn">FALSE</span>, <span class="at">pch =</span> <span class="dv">21</span>, <span class="at">bg =</span> <span class="st">&quot;gray&quot;</span>, <span class="at">cex =</span> <span class="fl">1.3</span>)</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> <span class="dv">0</span>, <span class="at">lty =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;gray&quot;</span>)</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> <span class="dv">1</span>, <span class="at">lty =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;gray&quot;</span>)</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> .<span class="dv">5</span>, <span class="at">lty =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;gray&quot;</span>)</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="st">&quot;Posterior mean edge weight&quot;</span>, <span class="at">side =</span> <span class="dv">1</span>, <span class="at">line =</span> <span class="dv">3</span>, <span class="at">cex =</span> <span class="fl">1.7</span>)</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="st">&quot;Posterior inclusion probability&quot;</span>, <span class="at">side =</span> <span class="dv">2</span>, <span class="at">line =</span> <span class="dv">3</span>, <span class="at">cex =</span> <span class="fl">1.7</span>)</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">1</span>)</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">2</span>, <span class="at">las =</span> <span class="dv">1</span>)</span></code></pre></div>
+<p>This plot looks similar to Example 1 because edge values near zero
+have low inclusion probabilities, and edge values far from zero have
+high inclusion probabilities. However, it differs in two ways:</p>
+<ol style="list-style-type: decimal">
+<li>The relationship between inclusion probability and edge weights
+takes a different shape for edge weights close to zero.</li>
+<li>There is more variety in the inclusion probabilities in Example 2
+than in Example 1.</li>
+</ol>
+<p>These differences happen because of how edge weights are handled.
+Both <code>bgm.em</code> and <code>bgm</code> use a diffuse prior
+density on edge weights for included edges, but they handle absent edges
+differently.</p>
+<p><code>bgm.em</code> uses a continuous density tightly wrapped around
+zero (with a very small variance or scale value). This causes the edge
+weights for absent edges to be close to zero, but not exactly zero.</p>
+<p>On the other hand, <code>bgm</code> sets the edge weights to exactly
+zero if an edge is excluded. This accounts for the difference between
+the curved relationship between inclusion probability and estimated edge
+weight around zero in Example 1 and the V-shaped relationship in Example
+2.</p>
+<p>The greater variety in inclusion probabilities in Example 2 results
+from the <code>bgm</code> function not using an EM algorithm to find the
+most likely model, which would push inclusion probabilities towards the
+extremes. Instead, it employs a simulation method that averages over all
+plausible network structures to estimate the posterior inclusion
+probability, which represents the probability that a network containing
+the edge in question generated the observed data.</p>
+<div id="median-probability-network" class="section level3">
+<h3>Median probability network</h3>
+<p>Using the posterior inclusion probabilities, we can also identify the
+median probability network. In this network, we include all edges with a
+posterior inclusion probability greater than <code>0.5</code>. We can
+reuse the code from earlier to create the median probability model.</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(qgraph) <span class="co">#For plotting the estimated network</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>posterior.inclusion <span class="ot">&lt;-</span> fit<span class="sc">$</span>gamma[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>gamma)]</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> fit<span class="sc">$</span>interactions[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>interactions)]</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>tmp[posterior.inclusion <span class="sc">&lt;</span> <span class="fl">0.5</span>] <span class="ot">=</span> <span class="dv">0</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>median.prob.model <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="dv">0</span>, <span class="at">nrow =</span> <span class="fu">ncol</span>(Wenchuan), <span class="at">ncol =</span> <span class="fu">ncol</span>(Wenchuan))</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>median.prob.model[<span class="fu">lower.tri</span>(median.prob.model)] <span class="ot">&lt;-</span> tmp</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>median.prob.model <span class="ot">&lt;-</span> median.prob.model <span class="sc">+</span> <span class="fu">t</span>(median.prob.model)</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(median.prob.model) <span class="ot">&lt;-</span> <span class="fu">colnames</span>(Wenchuan)</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(median.prob.model) <span class="ot">&lt;-</span> <span class="fu">colnames</span>(Wenchuan)</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a><span class="fu">qgraph</span>(median.prob.model, </span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>       <span class="at">theme =</span> <span class="st">&quot;TeamFortress&quot;</span>, </span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>       <span class="at">maximum =</span> .<span class="dv">5</span>,</span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>       <span class="at">fade =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>       <span class="at">color =</span> <span class="fu">c</span>(<span class="st">&quot;#f0ae0e&quot;</span>), <span class="at">vsize =</span> <span class="dv">10</span>, <span class="at">repulsion =</span> .<span class="dv">9</span>, </span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>       <span class="at">label.cex =</span> <span class="fl">1.1</span>, <span class="at">label.scale =</span> <span class="st">&quot;FALSE&quot;</span>, </span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>       <span class="at">labels =</span> <span class="fu">colnames</span>(Wenchuan))</span></code></pre></div>
+<p>It’s worth noting that this model has more connections than the local
+median probability model estimated with EM. Although the structure
+estimated with EM was the most plausible, there were other network
+structures that could also be deemed plausible for the given data. As a
+result, their connections are included in the median probability
+model.</p>
+</div>
+<div id="inclusion-bayes-factors" class="section level3">
+<h3>Inclusion Bayes factors</h3>
+<p>One of the benefits of using a fully Bayesian approach is that it
+allows us to calculate the inclusion Bayes factor <span class="citation">Huth et al. (<a href="#ref-HuthEtAl_2023" role="doc-biblioref">2023</a>)</span>. The inclusion Bayes factor
+represents the relative evidence for including or excluding a connection
+between a pair of nodes in the network. An inclusion Bayes factor of 10
+suggests that the observed data is ten times more likely to have come
+from a network that includes the relationship. Conversely, an inclusion
+Bayes factor of 1/10 implies that the observed data is ten times more
+likely to have come from a network that excludes the relationship. It’s
+important to note that inclusion Bayes factors can also reveal limited
+support for either hypothesis.</p>
+<p>In the current version of <code>bgms</code>, it is assumed that the
+prior inclusion probabilities are equal to <code>0.5</code>. To
+calculate the inclusion Bayes factors, we can simply convert the
+estimated posterior inclusion probabilities. For easier visualization,
+it is common to use the natural logarithm of the Bayes factor when
+plotting.</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Calculate the inclusion BFs</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>prior.odds <span class="ot">=</span> <span class="dv">1</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>posterior.inclusion <span class="ot">=</span> fit<span class="sc">$</span>gamma[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>gamma)]</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>posterior.odds <span class="ot">=</span> posterior.inclusion <span class="sc">/</span> (<span class="dv">1</span> <span class="sc">-</span> posterior.inclusion)</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>log.bayesfactor <span class="ot">=</span> <span class="fu">log</span>(posterior.odds <span class="sc">/</span> prior.odds)</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="co">#The next line is used to truncate the extreme values of the Bayes factor in the plot</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>log.bayesfactor[log.bayesfactor <span class="sc">&gt;</span> <span class="dv">5</span>] <span class="ot">=</span> <span class="dv">5</span></span></code></pre></div>
+<p>Lets plot the relation between the estimated edge weights and the
+inclusion Bayes factor.</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">5</span>, <span class="dv">5</span>, <span class="dv">1</span>, <span class="dv">1</span>) <span class="sc">+</span> <span class="fl">0.1</span>)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(fit<span class="sc">$</span>interactions[<span class="fu">lower.tri</span>(fit<span class="sc">$</span>interactions)], log.bayesfactor, <span class="at">pch =</span> <span class="dv">21</span>, <span class="at">bg =</span> <span class="st">&quot;#bfbfbf&quot;</span>, </span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">cex =</span> <span class="fl">1.3</span>, <span class="at">axes =</span> <span class="cn">FALSE</span>, <span class="at">xlab =</span> <span class="st">&quot;&quot;</span>, <span class="at">ylab =</span> <span class="st">&quot;&quot;</span>, <span class="at">ylim =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="dv">5</span>, <span class="fl">5.5</span>),</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">xlim =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">0.5</span>, <span class="fl">1.5</span>))</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">1</span>)</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">2</span>, <span class="at">las =</span> <span class="dv">1</span>)</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> <span class="fu">log</span>(<span class="dv">1</span><span class="sc">/</span><span class="dv">10</span>), <span class="at">lwd =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;#bfbfbf&quot;</span>)</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> <span class="fu">log</span>(<span class="dv">10</span>), <span class="at">lwd =</span> <span class="dv">2</span>, <span class="at">col =</span> <span class="st">&quot;#bfbfbf&quot;</span>)</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="at">x =</span> <span class="dv">1</span>, <span class="at">y =</span> <span class="fu">log</span>(<span class="dv">1</span> <span class="sc">/</span> <span class="dv">10</span>), <span class="at">labels =</span> <span class="st">&quot;Evidence for exclusion&quot;</span>, <span class="at">pos =</span> <span class="dv">1</span>,</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">cex =</span> <span class="fl">1.7</span>)</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="at">x =</span> <span class="dv">1</span>, <span class="at">y =</span> <span class="fu">log</span>(<span class="dv">10</span>), <span class="at">labels =</span> <span class="st">&quot;Evidence for inclusion&quot;</span>, <span class="at">pos =</span> <span class="dv">3</span>, <span class="at">cex =</span> <span class="fl">1.7</span>)</span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="at">x =</span> <span class="dv">1</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">labels =</span> <span class="st">&quot;Weak evidence&quot;</span>, <span class="at">cex =</span> <span class="fl">1.7</span>)</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="st">&quot;Log-inclusion Bayes factor&quot;</span>, <span class="at">side =</span> <span class="dv">2</span>, <span class="at">line =</span> <span class="dv">3</span>, <span class="at">cex =</span> <span class="fl">1.5</span>, <span class="at">las =</span> <span class="dv">0</span>)</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="st">&quot;Posterior mean edge weights &quot;</span>, <span class="at">side =</span> <span class="dv">1</span>, <span class="at">line =</span> <span class="fl">3.7</span>, <span class="at">cex =</span> <span class="fl">1.5</span>, <span class="at">las =</span> <span class="dv">0</span>)</span></code></pre></div>
+<p>In this example, we use a cut-off value of <code>10</code> for the
+inclusion Bayes factors. Values greater than <code>10</code> suggest
+evidence for edge inclusion, values less than <code>1/10</code> indicate
+evidence for edge exclusion, and values between <code>1/10</code> and
+<code>10</code> are considered to represent weak evidence.</p>
+</div>
+</div>
+<div id="analysis-with-raw-output" class="section level2">
+<h2>Analysis with raw output</h2>
+<p>For most purposes, the default output from <code>bgm</code> is
+sufficient, providing us with the posterior means of edge indicators and
+parameters. However, in some cases, we may want to use the raw samples
+from the joint posterior distribution. This could be to estimate the
+posterior distribution of a specific parameter, assess how many network
+structures fit the given data, or create Bayes factors for hypotheses
+involving multiple edges. We can obtain the raw samples by setting
+<code>save = TRUE</code>.</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span>  <span class="fu">bgm</span>(<span class="at">x =</span> Wenchuan, <span class="at">save =</span> <span class="cn">TRUE</span>)</span></code></pre></div>
+<div id="posterior-density-of-edge-weight" class="section level3">
+<h3>Posterior density of edge weight</h3>
+<p>We can employ the following code to use the posterior samples for
+plotting the posterior density of a single edge:</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>den <span class="ot">=</span> <span class="fu">density</span>(fit<span class="sc">$</span>interactions[,<span class="dv">1</span>], <span class="at">bw =</span> <span class="st">&quot;SJ&quot;</span>)</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>i <span class="ot">=</span> <span class="fu">which.min</span>(<span class="fu">abs</span>(den<span class="sc">$</span>x <span class="sc">-</span> <span class="fu">mean</span>(fit<span class="sc">$</span>interactions[,<span class="dv">1</span>])))[<span class="dv">1</span>]</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>x <span class="ot">=</span> den<span class="sc">$</span>x[i]</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>f <span class="ot">=</span> den<span class="sc">$</span>y[i]</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">cex.main =</span> <span class="fl">1.5</span>, <span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">5</span>, <span class="dv">6</span>, <span class="dv">1</span>, <span class="dv">1</span>) <span class="sc">+</span> <span class="fl">0.1</span>, <span class="at">mgp =</span> <span class="fu">c</span>(<span class="fl">3.5</span>, <span class="dv">1</span>, <span class="dv">0</span>), <span class="at">cex.lab =</span> <span class="fl">1.5</span>, <span class="at">font.lab =</span> <span class="dv">2</span>, <span class="at">cex.axis =</span> <span class="fl">1.3</span>, <span class="at">bty =</span> <span class="st">&quot;n&quot;</span>, <span class="at">las =</span> <span class="dv">1</span>)</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(den, <span class="at">axes =</span> <span class="cn">FALSE</span>, <span class="at">xlab=</span><span class="st">&quot;&quot;</span>, <span class="at">ylab=</span><span class="st">&quot;&quot;</span>, <span class="at">main =</span> <span class="st">&quot;&quot;</span>, <span class="at">frame.plot =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">1</span>)</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="fu">axis</span>(<span class="dv">2</span>)</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">las =</span> <span class="dv">0</span>)</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="at">text =</span> <span class="st">&quot;Edge weight&quot;</span>, <span class="at">side =</span> <span class="dv">1</span>, <span class="at">line =</span> <span class="fl">2.5</span>, <span class="at">cex =</span> <span class="fl">1.5</span>)</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a><span class="fu">mtext</span>(<span class="at">text =</span> <span class="st">&quot;Posterior density&quot;</span>, <span class="at">side =</span> <span class="dv">2</span>, <span class="at">line =</span> <span class="fl">2.5</span>, <span class="at">cex =</span> <span class="fl">1.5</span>)</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Add a point to indicate the posterior mean</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a><span class="fu">points</span>(x, f, <span class="at">pch =</span> <span class="dv">21</span>, <span class="at">bg =</span> <span class="st">&quot;grey&quot;</span>, <span class="at">cex =</span> <span class="fl">1.7</span>)</span></code></pre></div>
+<p>The posterior distribution of the edge weight is averaged across all
+structures, which can lead to greater dispersion compared to estimating
+it for a specific model. This is because it takes into account the
+uncertainty of the network structures and the parameter estimates
+associated with these structures.</p>
+<p>Note that the estimate is not very smooth. This is because we only
+used 10,000 samples to estimate the posterior distribution.</p>
+</div>
+</div>
+<div id="the-posterior-distribution-of-structures" class="section level2">
+<h2>The posterior distribution of structures</h2>
+<p>We can also use the raw samples to count the number of unique
+structures <code>bgm</code> encountered in 10,000 iterations.</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>G <span class="ot">=</span> <span class="dv">2</span> <span class="sc">*</span> fit<span class="sc">$</span>gamma <span class="sc">-</span> <span class="dv">1</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>S <span class="ot">=</span> <span class="fu">unique</span>(G)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="fu">nrow</span>(S)</span></code></pre></div>
+<p>There are clearly many different network structures that could fit
+the data. Let’s estimate their posterior probabilities.</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>Ps <span class="ot">=</span> <span class="fu">vector</span>(<span class="at">length =</span> <span class="fu">nrow</span>(S))</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span>(r <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span><span class="fu">nrow</span>(S)) {</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  s <span class="ot">=</span> S[r, ]</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  tmp <span class="ot">=</span> G <span class="sc">%*%</span> s</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  Ps[r] <span class="ot">=</span> <span class="fu">sum</span>(tmp <span class="sc">==</span> <span class="fu">ncol</span>(G))</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>Ps <span class="ot">=</span> Ps <span class="sc">/</span> <span class="fu">nrow</span>(G) <span class="sc">*</span> <span class="dv">100</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="fu">max</span>(Ps)</span></code></pre></div>
+<p>The most plausible model accounts for less than <code>1</code>
+percent of the posterior probability. In conclusion, we have significant
+uncertainty about the network structure that generated the data.</p>
+<p>In the analysis by <span class="citation">Marsman &amp; Haslbeck (<a href="#ref-MarsmanHaslbeck_2023_ordinal" role="doc-biblioref">2023</a>)</span>, it is demonstrated that even when
+there is uncertainty about the network structure that generated the
+data, inclusion Bayes factors are highly robust. They can help identify
+substructures of the network in which we have strong confidence.
+However, to perform these analyses, we need to run <code>bgm</code> for
+many more iterations. In their analysis, <span class="citation">Marsman
+&amp; Haslbeck (<a href="#ref-MarsmanHaslbeck_2023_ordinal" role="doc-biblioref">2023</a>)</span> used 1,000,000 iterations. For
+further details, interested readers can refer to their analysis script
+<a href="https://osf.io/qsj4w/files/osfstorage/6401be88bbc5e50b9bf81466">here</a>.</p>
+</div>
+<div id="references" class="section level2 unnumbered">
+<h2 class="unnumbered">References</h2>
+<div id="refs" class="references csl-bib-body hanging-indent" line-spacing="2">
+<div id="ref-HuthEtAl_2023" class="csl-entry">
+Huth, K., de Ron, J., Goudriaan, A. E., Luigjes, K., Mohammadi, R., van
+Holst, R. J., Wagenmakers, E.-J., &amp; Marsman, M. (2023). Bayesian
+analysis of cross-sectional networks: <span>A</span> tutorial in
+<span>R</span> and <span>JASP</span>. <em>Retrieved from <a href="https://psyarxiv.com/ub5tc/" class="uri">Https://Psyarxiv.com/Ub5tc/</a></em>.
+</div>
+<div id="ref-MarsmanHaslbeck_2023_ordinal" class="csl-entry">
+Marsman, M., &amp; Haslbeck, J. M. B. (2023). Bayesian analysis of the
+ordinal <span>M</span>arkov random field. <em>Retrieved from <a href="https://psyarxiv.com/ukwrf" class="uri">Https://Psyarxiv.com/Ukwrf</a></em>.
+</div>
+<div id="ref-MarsmanEtAl_2022_rbinnet" class="csl-entry">
+Marsman, M., Huth, K., Waldorp, L. J., &amp; Ntzoufras, I. (2022).
+Objective <span>B</span>ayesian edge screening and structure selection
+for <span>I</span>sing networks. <em>Psychometrika</em>, <em>87</em>(1),
+47–82. <a href="https://doi.org/10.1007/s11336-022-09848-8">https://doi.org/10.1007/s11336-022-09848-8</a>
+</div>
+<div id="ref-McNallyEtAl_2015" class="csl-entry">
+McNally, R. J., Robinaugh, D. J., Wu, G. W. Y., Wang, L., Deserno, M.
+K., &amp; Borsboom, D. (2015). Mental disorders as causal systems:
+<span>A</span> network approach to posttraumatic stress disorder.
+<em>Clinical Psychological Science</em>, <em>5</em>(6), 836–849. <a href="https://doi.org/10.1177/2167702614553230">https://doi.org/10.1177/2167702614553230</a>
+</div>
+</div>
+</div>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
