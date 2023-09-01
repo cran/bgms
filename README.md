@@ -1,5 +1,7 @@
 <!-- badges: start -->
-[![R-CMD-check](https://github.com/MaartenMarsman/bgms/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/MaartenMarsman/bgms/actions/workflows/R-CMD-check.yaml)
+[![CRAN Version](http://www.r-pkg.org/badges/version/bgms)](https://cran.r-project.org/package=bgms)
+[![Downloads](https://cranlogs.r-pkg.org/badges/bgms)](https://cran.r-project.org/package=bgms)
+[![Total](https://cranlogs.r-pkg.org/badges/grand-total/bgms)](https://cran.r-project.org/package=bgms)
 <!-- badges: end -->
 
 # bgms: Bayesian Analysis of Graphical Models
@@ -59,6 +61,12 @@ support for either hypothesis (Dienes 2014) —an <em>absence of
 evidence</em>.
 
 ## Installation
+
+You can install the latest version from CRAN using:
+
+``` r
+install.packages("bgms")
+```
 
 The current developmental version can be installed with
 

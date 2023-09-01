@@ -5,6 +5,73 @@
 using namespace Rcpp;
 
 // ----------------------------------------------------------------------------|
+// Impute missing data from full-conditional
+// ----------------------------------------------------------------------------|
+List impute_missing_data(NumericMatrix interactions,
+                         NumericMatrix thresholds,
+                         IntegerMatrix observations,
+                         IntegerMatrix n_cat_obs,
+                         IntegerVector no_categories,
+                         NumericMatrix rest_matrix,
+                         IntegerMatrix missing_index) {
+
+  int no_nodes = observations.ncol();
+  int no_missings = missing_index.nrow();
+  int max_no_categories = 0;
+  for(int node = 0; node < no_nodes; node++) {
+    if(no_categories[node] > max_no_categories) {
+      max_no_categories = no_categories[node];
+    }
+  }
+  NumericVector probabilities(max_no_categories + 1);
+  double exponent, rest_score, cumsum, u;
+  int score, person, node, new_observation, old_observation;
+
+  for(int missing = 0; missing < no_missings; missing++) {
+    //Which observation to impute?
+    person = missing_index(missing, 0) - 1; //R to C++ indexing
+    node = missing_index(missing, 1) - 1; //R to C++ indexing
+
+    //Generate new observation
+    rest_score = rest_matrix(person, node);
+
+    cumsum = 1.0;
+    probabilities[0] = 1.0;
+    for(int category = 0; category < no_categories[node]; category++) {
+      exponent = thresholds(node, category);
+      exponent += (category + 1) * rest_score;
+      cumsum += std::exp(exponent);
+      probabilities[category + 1] = cumsum;
+    }
+
+    u = cumsum * R::unif_rand();
+    score = 0;
+    while (u > probabilities[score]) {
+      score++;
+    }
+
+    new_observation = score;
+
+    //Update observations
+    old_observation = observations(person, node);
+    if(old_observation != new_observation) {
+      observations(person, node) = new_observation;
+      n_cat_obs(old_observation, node)--;
+      n_cat_obs(new_observation, node)++;
+      for(int vertex = 0; vertex < no_nodes; vertex++) {
+        //interactions(i, i) = 0
+        rest_matrix(person, vertex) -= old_observation * interactions(vertex, node);
+        rest_matrix(person, vertex) += new_observation * interactions(vertex, node);
+      }
+    }
+  }
+
+  return List::create(Named("observations") = observations,
+                      Named("n_cat_obs") = n_cat_obs,
+                      Named("rest_matrix") = rest_matrix);
+}
+
+// ----------------------------------------------------------------------------|
 // MH algorithm to sample from the full-conditional of the threshold parameters
 // ----------------------------------------------------------------------------|
 NumericMatrix metropolis_thresholds(NumericMatrix interactions,
@@ -173,14 +240,20 @@ List metropolis_interactions_cauchy(NumericMatrix interactions,
                                     double cauchy_scale,
                                     int no_persons,
                                     int no_nodes,
-                                    NumericMatrix rest_matrix) {
+                                    NumericMatrix rest_matrix,
+                                    bool adaptive,
+                                    double phi,
+                                    double target_ar,
+                                    int t,
+                                    double epsilon_lo,
+                                    double epsilon_hi) {
   double proposed_state;
   double current_state;
   double log_prob;
   double U;
 
   for(int node1 = 0; node1 <  no_nodes - 1; node1++) {
-    for(int node2 = node1 + 1; node2 <  no_nodes; node2++)
+    for(int node2 = node1 + 1; node2 <  no_nodes; node2++) {
       if(gamma(node1, node2) == 1) {
         current_state = interactions(node1, node2);
         proposed_state = R::rnorm(current_state, proposal_sd(node1, node2));
@@ -212,12 +285,29 @@ List metropolis_interactions_cauchy(NumericMatrix interactions,
               state_diff;
           }
         }
-      }
-  }
-  return List::create(Named("interactions") = interactions,
-                      Named("rest_matrix") = rest_matrix);
-}
 
+        if(adaptive == true) {
+          if(log_prob > 0) {
+            log_prob = 1;
+          } else {
+            log_prob = std::exp(log_prob);
+          }
+          proposal_sd(node1, node2) = proposal_sd(node1, node2) +
+            (log_prob - target_ar) * std::exp(-log(t) * phi);
+          if(proposal_sd(node1, node2) < epsilon_lo) {
+            proposal_sd(node1, node2) = epsilon_lo;
+          } else if (proposal_sd(node1, node2) > epsilon_hi) {
+            proposal_sd(node1, node2) = epsilon_hi;
+          }
+        }
+      }
+    }
+  }
+
+  return List::create(Named("interactions") = interactions,
+                      Named("rest_matrix") = rest_matrix,
+                      Named("proposal_sd") = proposal_sd);
+}
 
 // ----------------------------------------------------------------------------|
 // MH algorithm to sample from the cull-conditional of the active interaction
@@ -232,7 +322,13 @@ List metropolis_interactions_unitinfo(NumericMatrix interactions,
                                       NumericMatrix unit_info,
                                       int no_persons,
                                       int no_nodes,
-                                      NumericMatrix rest_matrix) {
+                                      NumericMatrix rest_matrix,
+                                      bool adaptive,
+                                      double phi,
+                                      double target_ar,
+                                      int t,
+                                      double epsilon_lo,
+                                      double epsilon_hi) {
   //NumericMatrix theta // no_nodes x no_nodes
   double proposed_state;
   double current_state;
@@ -240,7 +336,7 @@ List metropolis_interactions_unitinfo(NumericMatrix interactions,
   double U;
 
   for(int node1 = 0; node1 <  no_nodes - 1; node1++) {
-    for(int node2 = node1 + 1; node2 <  no_nodes; node2++)
+    for(int node2 = node1 + 1; node2 <  no_nodes; node2++) {
       if(gamma(node1, node2) == 1) {
         current_state = interactions(node1, node2);
         proposed_state = R::rnorm(current_state, proposal_sd(node1, node2));
@@ -279,10 +375,27 @@ List metropolis_interactions_unitinfo(NumericMatrix interactions,
               state_diff;
           }
         }
+
+        if(adaptive == true) {
+          if(log_prob > 0) {
+            log_prob = 1;
+          } else {
+            log_prob = std::exp(log_prob);
+          }
+          proposal_sd(node1, node2) = proposal_sd(node1, node2) +
+            (log_prob - target_ar) * std::exp(-log(t) * phi);
+          if(proposal_sd(node1, node2) < epsilon_lo) {
+            proposal_sd(node1, node2) = epsilon_lo;
+          } else if (proposal_sd(node1, node2) > epsilon_hi) {
+            proposal_sd(node1, node2) = epsilon_hi;
+          }
+        }
       }
+    }
   }
   return List::create(Named("interactions") = interactions,
-                      Named("rest_matrix") = rest_matrix);
+                      Named("rest_matrix") = rest_matrix,
+                      Named("proposal_sd") = proposal_sd);
 }
 
 // ----------------------------------------------------------------------------|
@@ -299,7 +412,9 @@ List metropolis_edge_interaction_pair_cauchy(NumericMatrix interactions,
                                              IntegerMatrix index,
                                              int no_interactions,
                                              int no_persons,
-                                             NumericMatrix rest_matrix) {
+                                             NumericMatrix rest_matrix,
+                                             NumericMatrix theta,
+                                             bool adaptive) {
   double proposed_state;
   double current_state;
   double log_prob;
@@ -337,12 +452,16 @@ List metropolis_edge_interaction_pair_cauchy(NumericMatrix interactions,
                            current_state,
                            proposal_sd(node1, node2),
                            true);
+
+      log_prob += log(theta(node1, node2) / (1 - theta(node1, node2)));
     } else {
       log_prob -= R::dcauchy(current_state, 0.0, cauchy_scale,  true);
       log_prob += R::dnorm(current_state,
                            proposed_state,
                            proposal_sd(node1, node2),
                            true);
+
+      log_prob -= log(theta(node1, node2) / (1 - theta(node1, node2)));
     }
 
     U = R::unif_rand();
@@ -373,16 +492,18 @@ List metropolis_edge_interaction_pair_cauchy(NumericMatrix interactions,
 //  pair (using a unit information prior)
 // ----------------------------------------------------------------------------|
 List metropolis_edge_interaction_pair_unitinfo(NumericMatrix interactions,
-                                                    NumericMatrix thresholds,
-                                                    IntegerMatrix gamma,
-                                                    IntegerMatrix observations,
-                                                    IntegerVector no_categories,
-                                                    NumericMatrix proposal_sd,
-                                                    NumericMatrix unit_info,
-                                                    IntegerMatrix index,
-                                                    int no_interactions,
-                                                    int no_persons,
-                                                    NumericMatrix rest_matrix) {
+                                               NumericMatrix thresholds,
+                                               IntegerMatrix gamma,
+                                               IntegerMatrix observations,
+                                               IntegerVector no_categories,
+                                               NumericMatrix proposal_sd,
+                                               NumericMatrix unit_info,
+                                               IntegerMatrix index,
+                                               int no_interactions,
+                                               int no_persons,
+                                               NumericMatrix rest_matrix,
+                                               NumericMatrix theta,
+                                               String adaptive) {
   double proposed_state;
   double current_state;
   double log_prob;
@@ -423,15 +544,19 @@ List metropolis_edge_interaction_pair_unitinfo(NumericMatrix interactions,
                            current_state,
                            proposal_sd(node1, node2),
                            true);
+
+      log_prob += log(theta(node1, node2) / (1 - theta(node1, node2)));
     } else {
       log_prob += R::dnorm(current_state,
                            proposed_state,
                            proposal_sd(node1, node2),
                            true);
+
       log_prob -= R::dnorm(current_state,
                            0.0,
                            unit_info(node1, node2),
                            true);
+      log_prob -= log(theta(node1, node2) / (1 - theta(node1, node2)));
     }
 
     U = R::unif_rand();
@@ -478,7 +603,14 @@ List gibbs_step_gm(IntegerMatrix observations,
                    IntegerMatrix gamma,
                    NumericMatrix interactions,
                    NumericMatrix thresholds,
-                   NumericMatrix rest_matrix) {
+                   NumericMatrix rest_matrix,
+                   NumericMatrix theta,
+                   bool adaptive,
+                   double phi,
+                   double target_ar,
+                   int t,
+                   double epsilon_lo,
+                   double epsilon_hi) {
 
   if(interaction_prior == "Cauchy") {
     List out = metropolis_edge_interaction_pair_cauchy(interactions,
@@ -491,7 +623,9 @@ List gibbs_step_gm(IntegerMatrix observations,
                                                        index,
                                                        no_interactions,
                                                        no_persons,
-                                                       rest_matrix);
+                                                       rest_matrix,
+                                                       theta,
+                                                       adaptive);
     IntegerMatrix gamma = out["gamma"];
     NumericMatrix interactions = out["interactions"];
     NumericMatrix rest_matrix = out["rest_matrix"];
@@ -506,7 +640,9 @@ List gibbs_step_gm(IntegerMatrix observations,
                                                          index,
                                                          no_interactions,
                                                          no_persons,
-                                                         rest_matrix);
+                                                         rest_matrix,
+                                                         theta,
+                                                         adaptive);
     IntegerMatrix gamma = out["gamma"];
     NumericMatrix interactions = out["interactions"];
     NumericMatrix rest_matrix = out["rest_matrix"];
@@ -523,9 +659,17 @@ List gibbs_step_gm(IntegerMatrix observations,
                                               cauchy_scale,
                                               no_persons,
                                               no_nodes,
-                                              rest_matrix);
+                                              rest_matrix,
+                                              adaptive,
+                                              phi,
+                                              target_ar,
+                                              t,
+                                              epsilon_lo,
+                                              epsilon_hi);
+
     NumericMatrix interactions = out["interactions"];
     NumericMatrix rest_matrix = out["rest_matrix"];
+    NumericMatrix proposal_sd = out["proposal_sd"];
   }
   if(interaction_prior == "UnitInfo") {
     List out = metropolis_interactions_unitinfo(interactions,
@@ -537,9 +681,17 @@ List gibbs_step_gm(IntegerMatrix observations,
                                                 unit_info,
                                                 no_persons,
                                                 no_nodes,
-                                                rest_matrix);
+                                                rest_matrix,
+                                                adaptive,
+                                                phi,
+                                                target_ar,
+                                                t,
+                                                epsilon_lo,
+                                                epsilon_hi);
+
     NumericMatrix interactions = out["interactions"];
     NumericMatrix rest_matrix = out["rest_matrix"];
+    NumericMatrix proposal_sd = out["proposal_sd"];
   }
 
   //Update thresholds
@@ -557,7 +709,8 @@ List gibbs_step_gm(IntegerMatrix observations,
   return List::create(Named("gamma") = gamma,
                       Named("interactions") = interactions,
                       Named("thresholds") = thresholds,
-                      Named("rest_matrix") = rest_matrix);
+                      Named("rest_matrix") = rest_matrix,
+                      Named("proposal_sd") = proposal_sd);
 }
 
 
@@ -574,14 +727,21 @@ List gibbs_sampler(IntegerMatrix observations,
                    double cauchy_scale,
                    NumericMatrix unit_info,
                    NumericMatrix proposal_sd,
+                   String edge_prior,
+                   NumericMatrix theta,
+                   double beta_bernoulli_alpha,
+                   double beta_bernoulli_beta,
                    IntegerMatrix Index,
                    int iter,
                    int burnin,
                    IntegerMatrix n_cat_obs,
                    double threshold_alpha,
                    double threshold_beta,
+                   bool na_impute,
+                   IntegerMatrix missing_index,
+                   bool adaptive = false,
                    bool save = false,
-                   bool display_progress = false){
+                   bool display_progress = false) {
   int cntr;
   int no_nodes = observations.ncol();
   int no_persons = observations.nrow();
@@ -592,6 +752,12 @@ List gibbs_sampler(IntegerMatrix observations,
   IntegerVector v = seq(0, no_interactions - 1);
   IntegerVector order(no_interactions);
   IntegerMatrix index(no_interactions, 3);
+
+  //Parameters of adaptive proposals -------------------------------------------
+  double phi = .75;
+  double target_ar = 0.234;
+  double epsilon_lo = 1 / no_persons;
+  double epsilon_hi = 2.0;
 
   //The resizing based on ``save'' could probably be prettier ------------------
   int nrow = no_nodes;
@@ -644,6 +810,19 @@ List gibbs_sampler(IntegerMatrix observations,
       index(cntr, 2) = Index(order[cntr], 2);
     }
 
+    if(na_impute == true) {
+      List out = impute_missing_data(interactions,
+                                     thresholds,
+                                     observations,
+                                     n_cat_obs,
+                                     no_categories,
+                                     rest_matrix,
+                                     missing_index);
+
+      IntegerMatrix observations = out["observations"];
+      IntegerMatrix n_cat_obs = out["n_cat_obs"];
+      NumericMatrix rest_matrix = out["rest_matrix"];
+    }
 
     List out = gibbs_step_gm(observations,
                              no_categories,
@@ -663,11 +842,38 @@ List gibbs_sampler(IntegerMatrix observations,
                              gamma,
                              interactions,
                              thresholds,
-                             rest_matrix);
+                             rest_matrix,
+                             theta,
+                             adaptive,
+                             phi,
+                             target_ar,
+                             iteration + 1,
+                             epsilon_lo,
+                             epsilon_hi);
+
     IntegerMatrix gamma = out["gamma"];
     NumericMatrix interactions = out["interactions"];
     NumericMatrix thresholds = out["thresholds"];
     NumericMatrix rest_matrix = out["rest_matrix"];
+    NumericMatrix proposal_sd = out["proposal_sd"];
+
+    if(edge_prior == "Beta-Bernoulli") {
+      int sumG = 0;
+      for(int i = 0; i < no_nodes - 1; i++) {
+        for(int j = i + 1; j < no_nodes; j++) {
+          sumG += gamma(i, j);
+        }
+      }
+      double probability = R::rbeta(beta_bernoulli_alpha + sumG,
+                                    beta_bernoulli_beta + no_interactions - sumG);
+
+      for(int i = 0; i < no_nodes - 1; i++) {
+        for(int j = i + 1; j < no_nodes; j++) {
+          theta(i, j) = probability;
+          theta(j, i) = probability;
+        }
+      }
+    }
 
   }
 
@@ -693,31 +899,70 @@ List gibbs_sampler(IntegerMatrix observations,
       index(cntr, 2) = Index(order[cntr], 2);
     }
 
+    if(na_impute == true) {
+      List out = impute_missing_data(interactions,
+                                     thresholds,
+                                     observations,
+                                     n_cat_obs,
+                                     no_categories,
+                                     rest_matrix,
+                                     missing_index);
+
+      IntegerMatrix observations = out["observations"];
+      IntegerMatrix n_cat_obs = out["n_cat_obs"];
+      NumericMatrix rest_matrix = out["rest_matrix"];
+    }
 
     List out = gibbs_step_gm(observations,
-                               no_categories,
-                               interaction_prior,
-                               cauchy_scale,
-                               unit_info,
-                               proposal_sd,
-                               index,
-                               n_cat_obs,
-                               threshold_alpha,
-                               threshold_beta,
-                               no_persons,
-                               no_nodes,
-                               no_interactions,
-                               no_thresholds,
-                               max_no_categories,
-                               gamma,
-                               interactions,
-                               thresholds,
-                               rest_matrix);
+                             no_categories,
+                             interaction_prior,
+                             cauchy_scale,
+                             unit_info,
+                             proposal_sd,
+                             index,
+                             n_cat_obs,
+                             threshold_alpha,
+                             threshold_beta,
+                             no_persons,
+                             no_nodes,
+                             no_interactions,
+                             no_thresholds,
+                             max_no_categories,
+                             gamma,
+                             interactions,
+                             thresholds,
+                             rest_matrix,
+                             theta,
+                             adaptive,
+                             phi,
+                             target_ar,
+                             iteration + 1,
+                             epsilon_lo,
+                             epsilon_hi);
 
     IntegerMatrix gamma = out["gamma"];
     NumericMatrix interactions = out["interactions"];
     NumericMatrix thresholds = out["thresholds"];
     NumericMatrix rest_matrix = out["rest_matrix"];
+    NumericMatrix proposal_sd = out["proposal_sd"];
+
+    if(edge_prior == "Beta-Bernoulli") {
+      int sumG = 0;
+      for(int i = 0; i < no_nodes - 1; i++) {
+        for(int j = i + 1; j < no_nodes; j++) {
+          sumG += gamma(i, j);
+        }
+      }
+      double probability = R::rbeta(beta_bernoulli_alpha + sumG,
+                                    beta_bernoulli_beta + no_interactions - sumG);
+
+      for(int i = 0; i < no_nodes - 1; i++) {
+        for(int j = i + 1; j < no_nodes; j++) {
+          theta(i, j) = probability;
+          theta(j, i) = probability;
+        }
+      }
+    }
 
     //Output -------------------------------------------------------------------
     if(save == TRUE) {

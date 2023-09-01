@@ -1,16 +1,14 @@
-#' Optimization of the Pseudoposterior for a Markov Random Field model for
-#' ordinal variables.
+#' Optimize Pseudoposterior for an Ordinal Markov Random Field Model
 #'
 #' The function \code{mppe} estimates the parameters for the ordinal MRF
-#' by optimizing the pseudoposterior with Newton-Raphson.
+#' by optimizing the pseudoposterior with the Newton-Raphson method.
 #'
-#' @param x An \code{no_persons} by \code{no_nodes} matrix containing the
-#' categories coded as non-negative integers (i.e., coded
-#' \code{0, 1, ..., no_categories}) for \code{no_persons} independent
-#' observations on \code{no_nodes} variables in the network or graph.
-#'
-#' @param no_categories The maximum category.
-#'
+#' @param x A dataframe or matrix with \code{n} rows and \code{p} columns,
+#' containing binary and ordinal variables for \code{n} independent observations
+#' and \code{p} variables in the network. Variables are recoded as non-negative
+#' integers \code{(0, 1, ..., m)} if not done already. Unobserved categories are
+#' collapsed into other categories after recoding. See \code{reformat_data} for
+#' details.
 #' @param interaction_prior The prior distribution for the interaction effects.
 #' Currently, two prior densities are implemented: The Unit Information prior
 #' (\code{interaction_prior = "UnitInfo"}) and the Cauchy prior
@@ -20,58 +18,69 @@
 #' to \code{2.5}.
 #'
 #' @param threshold_alpha,threshold_beta The shape parameters of the Beta-prime
-#' prior for the thresholds. Default to \code{1}.
-#'
-# @param precision A number between zero and one. The prior precision that is
-# desired for edge selection. Equal to one minus the desired type-1 error.
-# Defaults to \code{.975}.
+#' prior for the thresholds. Default to \code{0.5}.
 #'
 #' @param convergence_criterion The convergence criterion for the
 #' pseudoposterior values in the EM algorithm. Defaults to
 #' \code{sqrt(.Machine$double.eps)}.
 #'
 #' @param maximum_iterations The maximum number of EM iterations used. Defaults
-#' to \code{1e3}. A warning is issued if procedure has not converged in
+#' to \code{1e3}. A warning is issued if the procedure has not converged in
 #' \code{maximum_iterations} iterations.
 #'
-#' @param thresholds A \code{no_nodes} by \code{no_categories} matrix
-#' \code{thresholds}. Used as starting values in the Newton-Raphson procedure.
-#' Optional.
+#' @param thresholds A matrix with \code{p} rows and \code{max(m)} columns,
+#' containing the category thresholds for each node. Used as starting values in
+#' the Newton-Raphson procedure. Optional.
 #'
-#' @param interactions A \code{no_nodes} by \code{no_nodes} matrices
-#' \code{interactions}. Used as starting values in the Newton-Raphson procedure.
-#' Optional.
+#' @param interactions A matrix with \code{p} rows and \code{p} columns,
+#' containing the pairwise association estimates in the off-diagonal elements.
+#' Used as starting values in the Newton-Raphson procedure. Optional.
 #'
-#' @return A list containing the \code{no_nodes} by \code{no_nodes} matrices
-#' \code{interactions}, the \code{no_nodes} by \code{no_categories} matrix
-#' \code{thresholds}, the \code{hessian} matrix as computed in the final
-#' iteration of the optimization procedure, and, in case
-#' \code{interaction_prior = "UnitInfo"}, the \code{no_nodes} by \code{no_nodes}
-#' matrix \code{unit_info}. The matrix \code{interactions} is a numeric matrix
-#' that contains the maximum pseudoposterior estimates of the pairwise
-#' associations. The matrix \code{thresholds} contains the maximum
-#' pseudoposterior estimates of the category thresholds parameters. The
-#' \code{hessian} matrix has dimensions equal to the number of thresholds +
-#' associations. The topleft square contains the thresholds, the bottomright
-#' square the associations (of the form \code{(1,2), (1, 3), ..., (2, 1), ...}).
-#' The \code{unit_information} matrix contains the variances of the unit
-#' information prior for the association effects.
+#' @return A list containing:
+#' \itemize{
+#' \item \code{interactions}: A matrix with \code{p} rows and \code{p} columns,
+#' containing the maximum pseudoposterior estimates of the pairwise
+#' associations in the off-diagonal elements.
+#' \item \code{thresholds}: A matrix with \code{p} rows and \code{max(m)}
+#' columns, containing the maximum pseudoposterior estimates of the category
+#' thresholds for each node.
+#' \item \code{hessian}: A square matrix with \code{sum(m) + p(p-1)/2} rows and
+#' columns, evaluated at the maximum pseudoposterior estimates. The top-left
+#' square contains the thresholds, the bottom-right square the associations (of
+#' the form \code{(1,2), (1, 3), ..., (2, 1), ...}).
+#' }
+#' In the case that \code{interaction_prior = "UnitInfo"}, the list also
+#' contains the \code{p} by \code{p} matrix \code{unit_info}, which contains the
+#' asymptotic variances that are used to set the unit information prior for the
+#' association effects in the \code{bgms} function.
+#'
 #' @export
 mppe = function(x,
-                no_categories,
-                interaction_prior = "Cauchy",
+                interaction_prior = c("Cauchy", "UnitInfo"),
                 cauchy_scale = 2.5,
-                threshold_alpha = 1,
-                threshold_beta = 1,
+                threshold_alpha = 0.5,
+                threshold_beta = 0.5,
                 convergence_criterion = sqrt(.Machine$double.eps),
                 maximum_iterations = 1e3,
                 thresholds,
                 interactions) {
 
+  #Check data input ------------------------------------------------------------
+  if(!inherits(x, what = "matrix") && !inherits(x, what = "data.frame"))
+    stop("The input x needs to be a matrix or dataframe.")
+  if(inherits(x, what = "data.frame"))
+    x = data.matrix(x)
+  if(ncol(x) < 2)
+    stop("The matrix x should have more than one variable (columns).")
+  if(nrow(x) < 2)
+    stop("The matrix x should have more than one observation (rows).")
+
   #Check prior set-up for the interaction parameters ---------------------------
-  if(interaction_prior != "Cauchy" & interaction_prior != "UnitInfo")
-    stop("For the interaction effects we currently only have implemented the
-     Cauchy prior and the Unit Information prior. Please select one.")
+  interaction_prior = match.arg(interaction_prior)
+  if(interaction_prior == "Cauchy") {
+    if(cauchy_scale <= 0 || is.na(cauchy_scale) || is.infinite(cauchy_scale))
+      stop("The scale of the Cauchy prior needs to be positive.")
+  }
   if(interaction_prior == "Cauchy") {
     if(cauchy_scale <= 0)
       stop("The scale of the Cauchy prior needs to be positive.")
@@ -83,17 +92,8 @@ mppe = function(x,
   if(threshold_beta <= 0  | !is.finite(threshold_beta))
     stop("Parameter ``threshold_beta'' needs to be positive.")
 
-  #Check data input ------------------------------------------------------------
-  if(!inherits(x, what = "matrix"))
-    stop("The input x is supposed to be a matrix.")
-
-  if(ncol(x) < 2)
-    stop("The matrix x should have more than one variable (columns).")
-  if(nrow(x) < 2)
-    stop("The matrix x should have more than one observation (rows).")
-
   #Format the data input -------------------------------------------------------
-  data = reformat_data(x = x)
+  data = reformat_data(x = x, fn.name = "mppe")
   x = data$x
   no_categories = data$no_categories
   no_nodes = ncol(x)
@@ -125,8 +125,7 @@ mppe = function(x,
   # Newton-Raphson -------------------------------------------------------------
   if(interaction_prior == "UnitInfo") {
     # Maximum pseudolikelihood -------------------------------------------------
-    mpl = try(mple(x = x, no_categories = no_categories),
-              silent = TRUE)
+    mpl = try(mple(x = x), silent = TRUE)
     if(inherits(mpl, what = "try-error"))
       stop(paste0("You have chosen the unit information prior. To set-up this prior,\n",
                   "the log-pseudolikelihood needs to be optimized. This failed for \n",
@@ -350,10 +349,20 @@ mppe = function(x,
                   sep = " "),
             call. = FALSE)
 
-  colnames(interactions) = paste0("node ", 1:no_nodes)
-  rownames(interactions) = paste0("node ", 1:no_nodes)
+
+  #Preparing the output --------------------------------------------------------
+  if(is.null(colnames(x))){
+    data_columnnames = paste0("node ", 1:no_nodes)
+    colnames(interactions) = data_columnnames
+    rownames(interactions) = data_columnnames
+    rownames(thresholds) = data_columnnames
+  } else {
+    data_columnnames <- colnames(x)
+    colnames(interactions) = data_columnnames
+    rownames(interactions) = data_columnnames
+    rownames(thresholds) = data_columnnames
+  }
   colnames(thresholds) = paste0("category ", 1:max(no_categories))
-  rownames(thresholds) = paste0("node ", 1:no_nodes)
 
   names = character(length = no_nodes * (no_nodes - 1) / 2 +
                       sum(no_categories))
@@ -361,21 +370,21 @@ mppe = function(x,
   for(node in 1:no_nodes) {
     for(category in 1:no_categories[node]) {
       cntr = cntr + 1
-      names[cntr] = paste0("threshold(", node, ", ",category,")")
+      names[cntr] = paste0("threshold(", data_columnnames[node], ", ",category,")")
     }
   }
   for(node in 1:(no_nodes - 1)) {
     for(node_2 in (node + 1):no_nodes) {
       cntr = cntr + 1
-      names[cntr] = paste0("sigma(", node, ", ",node_2,")")
+      names[cntr] = paste0("sigma(", data_columnnames[node], ", ",data_columnnames[node_2],")")
     }
   }
   rownames(hessian) = names
   colnames(hessian) = names
 
   if(interaction_prior == "UnitInfo"){
-    colnames(unit_info) = paste0("node ", 1:no_nodes)
-    rownames(unit_info) = paste0("node ", 1:no_nodes)
+    colnames(unit_info) = data_columnnames
+    rownames(unit_info) = data_columnnames
     return(list(interactions = interactions,
                 thresholds = thresholds,
                 hessian = hessian,

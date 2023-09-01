@@ -67,8 +67,14 @@ knitr::opts_chunk$set(
 #    burnin = 1000,
 #    interaction_prior = c("UnitInfo", "Cauchy"),
 #    cauchy_scale = 2.5,
+#    edge_prior = c("Bernoulli", "Beta-Bernoulli"),
+#    inclusion_probability = 0.5,
+#    beta_bernoulli_alpha = 1,
+#    beta_bernoulli_beta = 1,
 #    threshold_alpha = 1,
 #    threshold_beta = 1,
+#    adaptive = FALSE,
+#    na.action = c("listwise", "impute"),
 #    save = FALSE,
 #    display_progress = TRUE
 #  )

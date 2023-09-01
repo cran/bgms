@@ -4,10 +4,10 @@
 #' MRF using the joint pseudolikelihood and a continuous spike and slab prior
 #' distribution stipulated on the MRF's interaction or association parameters.
 #'
-#' @param x A matrix with \code{n} rows and \code{p} columns, containing binary
-#' and ordinal variables for \code{n} independent observations and \code{p}
-#' variables in the network. Variables are recoded as non-negative integers
-#' \code{(0, 1, ..., m)} if not done already. Unobserved categories are
+#' @param x A dataframe or matrix with \code{n} rows and \code{p} columns,
+#' containing binary and ordinal variables for \code{n} independent observations
+#' and \code{p} variables in the network. Variables are recoded as non-negative
+#' integers \code{(0, 1, ..., m)} if not done already. Unobserved categories are
 #' collapsed into other categories after recoding. See \code{reformat_data} for
 #' details.
 #' @param precision A value between 0 and 1 representing the desired precision
@@ -108,8 +108,18 @@ bgm.em = function(x,
                   indicator_alpha = 1,
                   indicator_beta = 1,
                   maximum_iterations = 1e3,
-                  threshold_alpha = 1,
-                  threshold_beta = 1) {
+                  threshold_alpha = 0.5,
+                  threshold_beta = 0.5) {
+
+  #Check data input ------------------------------------------------------------
+  if(!inherits(x, what = "matrix") && !inherits(x, what = "data.frame"))
+    stop("The input x needs to be a matrix or dataframe.")
+  if(inherits(x, what = "data.frame"))
+    x = data.matrix(x)
+  if(ncol(x) < 2)
+    stop("The matrix x should have more than one variable (columns).")
+  if(nrow(x) < 2)
+    stop("The matrix x should have more than one observation (rows).")
 
   #Check prior set-up for the interaction parameters ---------------------------
   if(precision < 0 || precision > 1)
@@ -136,17 +146,8 @@ bgm.em = function(x,
      abs(maximum_iterations - round(maximum_iterations)) > sqrt(.Machine$double.eps))
     stop("Parameter ``maximum_iterations'' needs to be a positive integer.")
 
-  #Check data input ------------------------------------------------------------
-  if(!inherits(x, what = "matrix"))
-    stop("The input x is supposed to be a matrix.")
-
-  if(ncol(x) < 2)
-    stop("The matrix x should have more than one variable (columns).")
-  if(nrow(x) < 2)
-    stop("The matrix x should have more than one observation (rows).")
-
   #Format the data input -------------------------------------------------------
-  data = reformat_data(x = x)
+  data = reformat_data(x = x, fn.name = "bgm.em")
   x = data$x
   no_categories = data$no_categories
 
@@ -157,8 +158,7 @@ bgm.em = function(x,
   no_persons = nrow(x)
 
   # Set spike and slab prior variances -----------------------------------------
-  fit <- try(mple(x = x, no_categories = no_categories),
-             silent = TRUE)
+  fit <- try(mple(x = x), silent = TRUE)
   if(inherits(fit, "try-error")) {
     stop(paste0(
       "We use a continuous spike and slab prior for the pairwise interactions.\n",
@@ -327,12 +327,23 @@ bgm.em = function(x,
                   sep = " "),
             call. = FALSE)
 
-  colnames(interactions) = paste0("node ", 1:no_nodes)
-  rownames(interactions) = paste0("node ", 1:no_nodes)
-  colnames(gamma) = paste0("node ", 1:no_nodes)
-  rownames(gamma) = paste0("node ", 1:no_nodes)
+  #Preparing the output --------------------------------------------------------
+  if(is.null(colnames(x))){
+    data_columnnames = paste0("node ", 1:no_nodes)
+    colnames(interactions) = data_columnnames
+    rownames(interactions) = data_columnnames
+    colnames(gamma) = data_columnnames
+    rownames(gamma) = data_columnnames
+    rownames(thresholds) = data_columnnames
+  } else {
+    data_columnnames <- colnames(x)
+    colnames(interactions) = data_columnnames
+    rownames(interactions) = data_columnnames
+    colnames(gamma) = data_columnnames
+    rownames(gamma) = data_columnnames
+    rownames(thresholds) = data_columnnames
+  }
   colnames(thresholds) = paste0("category ", 1:max(no_categories))
-  rownames(thresholds) = paste0("node ", 1:no_nodes)
 
   if(!hierarchical)
     return(list(interactions = interactions,
