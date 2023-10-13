@@ -145,7 +145,7 @@
 #'  # EVIDENCE - EDGE WEIGHT PLOT
 #'  #------------------------------------------------------------------------------|
 #'
-#'  #The bgms package currently assumes that the prior odds are 1:
+#'  #For the default choice of the structure prior, the prior odds equal one:
 #'  prior.odds = 1
 #'  posterior.inclusion = fit$gamma[lower.tri(fit$gamma)]
 #'  posterior.odds = posterior.inclusion / (1 - posterior.inclusion)
@@ -248,7 +248,7 @@ bgm = function(x,
         stop("The inclusion probability cannot exceed the value one.")
       theta = matrix(theta, nrow = ncol(x), ncol = ncol(x))
     } else {
-      if(!inherits(inclusion_probability, what = "matrix") ||
+      if(!inherits(inclusion_probability, what = "matrix") &&
          !inherits(inclusion_probability, what = "data.frame"))
         stop("The input for the inclusion probability argument needs to be a single number, matrix, or dataframe.")
 
@@ -265,10 +265,12 @@ bgm = function(x,
       if(any(is.na(theta[lower.tri(theta)])) ||
          any(is.null(theta[lower.tri(theta)])))
         stop("One or more elements of the elements in inclusion probability matrix are not specified.")
-      if(any(theta <= 0))
-        stop("The inclusion probability matrix contains negative values, the values need to be positive.")
-      if(theta >= 1)
-        stop("The inclusion probability matrix contains values greater than one; inclusion probabilities cannot exceed the value one.")
+      if(any(theta[lower.tri(theta)] <= 0))
+        stop(paste0("The inclusion probability matrix contains negative or zero values;\n",
+                    "inclusion probabilities need to be positive."))
+      if(any(theta[lower.tri(theta)] >= 1))
+        stop(paste0("The inclusion probability matrix contains values greater than or equal to one;\n",
+                    "inclusion probabilities cannot exceed or equal the value one."))
     }
   }
   if(edge_prior == "Beta-Bernoulli") {
@@ -351,11 +353,16 @@ bgm = function(x,
   if(adaptive == FALSE && !na.impute) {
     hessian = pps$hessian[-c(1:no_thresholds), -c(1:no_thresholds)]
     cntr = 0
-    for(node1 in 1:(no_nodes - 1)) {
-      for(node2 in (node1 + 1):no_nodes) {
-        cntr = cntr + 1
-        proposal_sd[node1, node2] = sqrt(-1 / hessian[cntr, cntr])
-        proposal_sd[node2, node1] = proposal_sd[node1, node2]
+    if(no_nodes == 2) {
+      proposal_sd[1, 2] = sqrt(-1 / hessian[cntr])
+      proposal_sd[2, 1] = proposal_sd[1, 2]
+    } else {
+      for(node1 in 1:(no_nodes - 1)) {
+        for(node2 in (node1 + 1):no_nodes) {
+          cntr = cntr + 1
+          proposal_sd[node1, node2] = sqrt(-1 / hessian[cntr, cntr])
+          proposal_sd[node2, node1] = proposal_sd[node1, node2]
+        }
       }
     }
   }
