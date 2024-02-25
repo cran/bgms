@@ -8,75 +8,23 @@ knitr::opts_chunk$set(
 ## ----setup--------------------------------------------------------------------
 #  library(bgms)
 
-## ----usage, eval=FALSE--------------------------------------------------------
-#  bgm.em(
-#    x,
-#    precision = 0.975,
-#    convergence_criterion = sqrt(.Machine$double.eps),
-#    theta = 0.5,
-#    hierarchical = FALSE,
-#    indicator_alpha = 1,
-#    indicator_beta = 1,
-#    maximum_iterations = 1000,
-#    threshold_alpha = 1,
-#    threshold_beta = 1
-#  )
-
-## ----message=FALSE, warning=FALSE, cache=TRUE---------------------------------
-#  fit <- bgm.em(x = Wenchuan)
-
-## ----message=FALSE, warning=FALSE, fig.width= 7, fig.height= 7----------------
-#  par(mar = c(6, 5, 1, 1))
-#  plot(x = fit$interactions[lower.tri(fit$interactions)],
-#      y = fit$gamma[lower.tri(fit$gamma)], ylim = c(0, 1),
-#      xlab = "", ylab = "", axes = FALSE, pch = 21, bg = "#bfbfbf", cex = 1.3)
-#  abline(h = 0, lty = 2, col = "#bfbfbf")
-#  abline(h = 1, lty = 2, col = "#bfbfbf")
-#  abline(h = .5, lty = 2, col = "#bfbfbf")
-#  mtext("Posterior mode edge weight", side = 1, line = 3, cex = 1.7)
-#  mtext("(Local) posterior inclusion probability", side = 2, line = 3, cex = 1.7)
-#  axis(1)
-#  axis(2, las = 1)
-
-## ----message=FALSE, warning=FALSE, fig.width= 7, fig.height= 7----------------
-#  library(qgraph) #For plotting the estimated network
-#  
-#  posterior.inclusion <- fit$gamma[lower.tri(fit$gamma)]
-#  tmp <- fit$interactions[lower.tri(fit$interactions)]
-#  tmp[posterior.inclusion < 0.5] = 0
-#  
-#  median.prob.model <- matrix(0, nrow = ncol(Wenchuan), ncol = ncol(Wenchuan))
-#  median.prob.model[lower.tri(median.prob.model)] <- tmp
-#  median.prob.model <- median.prob.model + t(median.prob.model)
-#  
-#  rownames(median.prob.model) <- colnames(Wenchuan)
-#  colnames(median.prob.model) <- colnames(Wenchuan)
-#  
-#  qgraph(median.prob.model,
-#        theme = "TeamFortress",
-#        maximum = .5,
-#        fade = FALSE,
-#        color = c("#f0ae0e"), vsize = 10, repulsion = .9,
-#        label.cex = 1.1, label.scale = "FALSE",
-#        labels = colnames(Wenchuan))
-
 ## ----usage2, eval=FALSE-------------------------------------------------------
-#  bgm(
-#    x,
-#    iter = 10000,
-#    burnin = 1000,
-#    interaction_prior = c("UnitInfo", "Cauchy"),
-#    cauchy_scale = 2.5,
-#    edge_prior = c("Bernoulli", "Beta-Bernoulli"),
-#    inclusion_probability = 0.5,
-#    beta_bernoulli_alpha = 1,
-#    beta_bernoulli_beta = 1,
-#    threshold_alpha = 1,
-#    threshold_beta = 1,
-#    adaptive = FALSE,
-#    na.action = c("listwise", "impute"),
-#    save = FALSE,
-#    display_progress = TRUE
+#  bgm(x,
+#      variable_type = "ordinal",
+#      reference_category,
+#      iter = 1e4,
+#      burnin = 1e3,
+#      interaction_scale = 2.5,
+#      threshold_alpha = 0.5,
+#      threshold_beta = 0.5,
+#      edge_selection = TRUE,
+#      edge_prior = c("Bernoulli", "Beta-Bernoulli"),
+#      inclusion_probability = 0.5,
+#      beta_bernoulli_alpha = 1,
+#      beta_bernoulli_beta = 1,
+#      na.action = c("listwise", "impute"),
+#      save = FALSE,
+#      display_progress = TRUE
 #  )
 
 ## ----message=FALSE, warning=FALSE, cache=TRUE---------------------------------
