@@ -1,11 +1,11 @@
-#' Bayesian edge selection or Bayesian estimation for Markov Random Fields of
-#' mixed binary and ordinal variables using MCMC.
+#' Bayesian edge selection or Bayesian estimation for a Markov random field
+#' model for binary and/or ordinal variables.
 #'
 #' The function \code{bgm} explores the joint pseudoposterior distribution of
 #' parameters and possibly edge indicators for a Markov Random Field model for
 #' mixed binary and ordinal variables.
 #'
-#' Currently, bgm supports two types of ordinal variables. The regular, default,
+#' Currently, \code{bgm} supports two types of ordinal variables. The regular, default,
 #' ordinal variable type has no restrictions on its distribution. Every response
 #' category except the first receives its own threshold parameter. The
 #' Blume-Capel ordinal variable assumes that there is a specific reference
@@ -92,7 +92,7 @@
 #' network is modeled with binary indicator variables that capture the structure
 #' of the network. The argument \code{edge_prior} is used to set a prior
 #' distribution for the edge indicator variables, i.e., the structure of the
-#' network. Currently, two options are implemented: The Bernoulli model
+#' network. Currently, three options are implemented: The Bernoulli model
 #' \code{edge_prior = "Bernoulli"} assumes that the probability that an edge
 #' between two variables is included is equal to \code{inclusion_probability}
 #' and independent of other edges or variables. When
@@ -102,7 +102,16 @@
 #' inclusion probability with shape parameters \code{beta_bernoulli_alpha} and
 #' \code{beta_bernoulli_beta}. If \code{beta_bernoulli_alpha = 1} and
 #' \code{beta_bernoulli_beta = 1}, this means that networks with the same
-#' complexity (number of edges) get the same prior weight. The default is
+#' complexity (number of edges) get the same prior weight. The Stochastic Block
+#' model \code{edge_prior = "Stochastic-Block"} assumes that nodes can be
+#' organized into blocks or clusters. In principle, the assignment of nodes to
+#' such clusters is unknown, and the model as implemented here considers all
+#' possible options \insertCite{@i.e., specifies a Dirichlet process on the node to block
+#' allocation as described by @GengEtAl_2019}{bgms}. This model is advantageous
+#' when nodes are expected to fall into distinct clusters. The inclusion
+#' probabilities for the edges are defined at the level of the clusters, with a
+#' beta prior for the unknown inclusion probability with shape parameters
+#' \code{beta_bernoulli_alpha} and \code{beta_bernoulli_beta}. The default is
 #' \code{edge_prior = "Bernoulli"}.
 #' @param inclusion_probability The prior edge inclusion probability for the
 #' Bernoulli model. Can be a single probability, or a matrix of \code{p} rows
@@ -112,6 +121,8 @@
 #' the Beta prior density for the Bernoulli inclusion probability. Must be
 #' positive numbers. Defaults to \code{beta_bernoulli_alpha = 1} and
 #' \code{beta_bernoulli_beta = 1}.
+#' @param dirichlet_alpha The shape of the Dirichlet prior on the node-to-block
+#' allocation parameters for the Stochastic Block model.
 #' @param na.action How do you want the function to handle missing data? If
 #' \code{na.action = "listwise"}, listwise deletion is used. If
 #' \code{na.action = "impute"}, missing data are imputed iteratively during the
@@ -129,10 +140,10 @@
 #' The default is \code{TRUE}.
 #'
 #' @return If \code{save = FALSE} (the default), the result is a list of class
-#' ``bgms'' containing the following matrices:
+#' ``bgms'' containing the following matrices with model-averaged quantities:
 #' \itemize{
-#' \item \code{gamma}: A matrix with \code{p} rows and \code{p} columns,
-#' containing posterior inclusion probabilities of individual edges.
+#' \item \code{indicator}: A matrix with \code{p} rows and \code{p} columns,
+#' containing the posterior inclusion probabilities of individual edges.
 #' \item \code{interactions}: A matrix with \code{p} rows and \code{p} columns,
 #' containing model-averaged posterior means of the pairwise associations.
 #' \item \code{thresholds}: A matrix with \code{p} rows and \code{max(m)}
@@ -144,7 +155,7 @@
 #'
 #' If \code{save = TRUE}, the result is a list of class ``bgms'' containing:
 #' \itemize{
-#' \item \code{gamma}: A matrix with \code{iter} rows and
+#' \item \code{indicator}: A matrix with \code{iter} rows and
 #' \code{p * (p - 1) / 2} columns, containing the edge inclusion indicators from
 #' every iteration of the Gibbs sampler.
 #' \item \code{interactions}: A matrix with \code{iter} rows and
@@ -158,6 +169,9 @@
 #'
 #' In addition to the analysis results, the bgm output lists some of the
 #' arguments of its call. This is useful for post-processing the results.
+#'
+#' @references
+#'   \insertAllCited{}
 #'
 #' @examples
 #' \donttest{
@@ -177,7 +191,7 @@
 #'
 #'  par(mar = c(6, 5, 1, 1))
 #'  plot(x = fit$interactions[lower.tri(fit$interactions)],
-#'       y = fit$gamma[lower.tri(fit$gamma)], ylim = c(0, 1),
+#'       y = fit$indicator[lower.tri(fit$indicator)], ylim = c(0, 1),
 #'       xlab = "", ylab = "", axes = FALSE, pch = 21, bg = "gray", cex = 1.3)
 #'  abline(h = 0, lty = 2, col = "gray")
 #'  abline(h = 1, lty = 2, col = "gray")
@@ -194,7 +208,7 @@
 #'
 #'  #For the default choice of the structure prior, the prior odds equal one:
 #'  prior.odds = 1
-#'  posterior.inclusion = fit$gamma[lower.tri(fit$gamma)]
+#'  posterior.inclusion = fit$indicator[lower.tri(fit$indicator)]
 #'  posterior.odds = posterior.inclusion / (1 - posterior.inclusion)
 #'  log.bayesfactor = log(posterior.odds / prior.odds)
 #'  log.bayesfactor[log.bayesfactor > 5] = 5
@@ -253,10 +267,11 @@ bgm = function(x,
                threshold_alpha = 0.5,
                threshold_beta = 0.5,
                edge_selection = TRUE,
-               edge_prior = c("Bernoulli", "Beta-Bernoulli"),
+               edge_prior = c("Bernoulli", "Beta-Bernoulli", "Stochastic-Block"),
                inclusion_probability = 0.5,
                beta_bernoulli_alpha = 1,
                beta_bernoulli_beta = 1,
+               dirichlet_alpha = 1,
                na.action = c("listwise", "impute"),
                save = FALSE,
                display_progress = TRUE) {
@@ -282,7 +297,8 @@ bgm = function(x,
                       edge_prior = edge_prior,
                       inclusion_probability = inclusion_probability,
                       beta_bernoulli_alpha = beta_bernoulli_alpha,
-                      beta_bernoulli_beta = beta_bernoulli_beta)
+                      beta_bernoulli_beta = beta_bernoulli_beta,
+                      dirichlet_alpha = dirichlet_alpha)
 
   # ----------------------------------------------------------------------------
   # The vector variable_type is now coded as boolean.
@@ -334,7 +350,7 @@ bgm = function(x,
   x = data$x
   no_categories = data$no_categories
   missing_index = data$missing_index
-  na.impute = data$na.impute
+  na_impute = data$na_impute
   reference_category = data$reference_category
 
   no_variables = ncol(x)
@@ -350,7 +366,7 @@ bgm = function(x,
                                   ncol = 2)
 
   # Starting value of model matrix ---------------------------------------------
-  gamma = matrix(1,
+  indicator = matrix(1,
                  nrow = no_variables,
                  ncol = no_variables)
 
@@ -396,7 +412,7 @@ bgm = function(x,
 
   #The Metropolis within Gibbs sampler -----------------------------------------
   out = gibbs_sampler(observations = x,
-                      gamma = gamma,
+                      indicator = indicator,
                       interactions = interactions,
                       thresholds = thresholds,
                       no_categories  = no_categories,
@@ -407,6 +423,7 @@ bgm = function(x,
                       theta = theta,
                       beta_bernoulli_alpha = beta_bernoulli_alpha,
                       beta_bernoulli_beta = beta_bernoulli_beta,
+                      dirichlet_alpha = dirichlet_alpha,
                       Index = Index,
                       iter = iter,
                       burnin = burnin,
@@ -414,7 +431,7 @@ bgm = function(x,
                       sufficient_blume_capel = sufficient_blume_capel,
                       threshold_alpha = threshold_alpha,
                       threshold_beta = threshold_beta,
-                      na_impute = na.impute,
+                      na_impute = na_impute,
                       missing_index = missing_index,
                       variable_bool = variable_bool,
                       reference_category = reference_category,
@@ -427,7 +444,7 @@ bgm = function(x,
   arguments = list(
     no_variables = no_variables,
     no_cases = nrow(x),
-    na_impute = na.impute,
+    na_impute = na_impute,
     variable_type = variable_type,
     iter = iter,
     burnin = burnin,
@@ -439,6 +456,7 @@ bgm = function(x,
     inclusion_probability = theta,
     beta_bernoulli_alpha = beta_bernoulli_alpha ,
     beta_bernoulli_beta =  beta_bernoulli_beta,
+    dirichlet_alpha = dirichlet_alpha,
     na.action = na.action,
     save = save,
     version = packageVersion("bgms")
@@ -446,7 +464,7 @@ bgm = function(x,
 
   if(save == FALSE) {
     if(edge_selection == TRUE) {
-      gamma = out$gamma
+      indicator = out$indicator
     }
     interactions = out$interactions
     tresholds = out$thresholds
@@ -456,8 +474,8 @@ bgm = function(x,
       colnames(interactions) = data_columnnames
       rownames(interactions) = data_columnnames
       if(edge_selection == TRUE) {
-        colnames(gamma) = data_columnnames
-        rownames(gamma) = data_columnnames
+        colnames(indicator) = data_columnnames
+        rownames(indicator) = data_columnnames
       }
       rownames(thresholds) = data_columnnames
     } else {
@@ -465,18 +483,23 @@ bgm = function(x,
       colnames(interactions) = data_columnnames
       rownames(interactions) = data_columnnames
       if(edge_selection == TRUE) {
-        colnames(gamma) = data_columnnames
-        rownames(gamma) = data_columnnames
+        colnames(indicator) = data_columnnames
+        rownames(indicator) = data_columnnames
       }
       rownames(thresholds) = data_columnnames
     }
 
-    colnames(tresholds) = paste0("category ", 1:max(no_categories))
+    if(any(variable_bool)) {
+      colnames(thresholds) = paste0("category ", 1:max(no_categories))
+    } else {
+      thresholds = thresholds[, 1:2]
+      colnames(thresholds) = c("linear", "quadratic")
+    }
 
     arguments$data_columnnames = data_columnnames
 
     if(edge_selection == TRUE) {
-      output = list(gamma = gamma,
+      output = list(indicator = indicator,
                     interactions = interactions,
                     thresholds = thresholds,
                     arguments = arguments)
@@ -490,7 +513,7 @@ bgm = function(x,
     return(output)
   } else {
     if(edge_selection == TRUE) {
-      gamma = out$gamma
+      indicator = out$indicator
     }
     interactions = out$interactions
     thresholds = out$thresholds
@@ -507,7 +530,7 @@ bgm = function(x,
     names_vec <- names_comb[lower.tri(names_comb)]
 
     if(edge_selection == TRUE) {
-      colnames(gamma) = names_vec
+      colnames(indicator) = names_vec
     }
     colnames(interactions) = names_vec
     names = character(length = sum(no_categories))
@@ -521,7 +544,7 @@ bgm = function(x,
     colnames(thresholds) = names
 
     if(edge_selection == TRUE) {
-      dimnames(gamma) = list(Iter. = 1:iter, colnames(gamma))
+      dimnames(indicator) = list(Iter. = 1:iter, colnames(indicator))
     }
     dimnames(interactions) = list(Iter. = 1:iter, colnames(interactions))
     dimnames(thresholds) = list(Iter. = 1:iter, colnames(thresholds))
@@ -529,7 +552,7 @@ bgm = function(x,
     arguments$data_columnnames = data_columnnames
 
     if(edge_selection == TRUE) {
-      output = list(gamma = gamma,
+      output = list(indicator = indicator,
                     interactions = interactions,
                     thresholds = thresholds,
                     arguments = arguments)

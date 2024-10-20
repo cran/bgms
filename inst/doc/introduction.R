@@ -1,4 +1,4 @@
-## ---- include = FALSE---------------------------------------------------------
+## ----include = FALSE----------------------------------------------------------
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
@@ -18,14 +18,14 @@ knitr::opts_chunk$set(
 #      threshold_alpha = 0.5,
 #      threshold_beta = 0.5,
 #      edge_selection = TRUE,
-#      edge_prior = c("Bernoulli", "Beta-Bernoulli"),
+#      edge_prior = c("Bernoulli", "Beta-Bernoulli", "Stochastic-Block"),
 #      inclusion_probability = 0.5,
 #      beta_bernoulli_alpha = 1,
 #      beta_bernoulli_beta = 1,
+#      dirichlet_alpha = 1,
 #      na.action = c("listwise", "impute"),
 #      save = FALSE,
-#      display_progress = TRUE
-#  )
+#      display_progress = TRUE)
 
 ## ----message=FALSE, warning=FALSE, cache=TRUE---------------------------------
 #  fit <-  bgm(x = Wenchuan)
@@ -33,7 +33,7 @@ knitr::opts_chunk$set(
 ## ----message=FALSE, warning=FALSE, fig.width= 7, fig.height= 7----------------
 #  par(mar = c(6, 5, 1, 1))
 #  plot(x = fit$interactions[lower.tri(fit$interactions)],
-#       y = fit$gamma[lower.tri(fit$gamma)], ylim = c(0, 1),
+#       y = fit$indicator[lower.tri(fit$indicator)], ylim = c(0, 1),
 #       xlab = "", ylab = "", axes = FALSE, pch = 21, bg = "gray", cex = 1.3)
 #  abline(h = 0, lty = 2, col = "gray")
 #  abline(h = 1, lty = 2, col = "gray")
@@ -46,7 +46,7 @@ knitr::opts_chunk$set(
 ## ----message=FALSE, warning=FALSE, fig.width= 7, fig.height= 7----------------
 #  library(qgraph) #For plotting the estimated network
 #  
-#  posterior.inclusion <- fit$gamma[lower.tri(fit$gamma)]
+#  posterior.inclusion <- fit$indicator[lower.tri(fit$indicator)]
 #  tmp <- fit$interactions[lower.tri(fit$interactions)]
 #  tmp[posterior.inclusion < 0.5] = 0
 #  
@@ -68,7 +68,7 @@ knitr::opts_chunk$set(
 ## ----message=FALSE, warning=FALSE---------------------------------------------
 #  # Calculate the inclusion BFs
 #  prior.odds = 1
-#  posterior.inclusion = fit$gamma[lower.tri(fit$gamma)]
+#  posterior.inclusion = fit$indicator[lower.tri(fit$indicator)]
 #  posterior.odds = posterior.inclusion / (1 - posterior.inclusion)
 #  log.bayesfactor = log(posterior.odds / prior.odds)
 #  #The next line is used to truncate the extreme values of the Bayes factor in the plot
@@ -110,17 +110,17 @@ knitr::opts_chunk$set(
 #  points(x, f, pch = 21, bg = "grey", cex = 1.7)
 
 ## ----message=FALSE, warning=FALSE---------------------------------------------
-#  G = 2 * fit$gamma - 1
-#  S = unique(G)
+#  I = 2 * fit$indicator - 1
+#  S = unique(I)
 #  nrow(S)
 
 ## ----message=FALSE, warning=FALSE---------------------------------------------
 #  Ps = vector(length = nrow(S))
 #  for(r in 1:nrow(S)) {
 #    s = S[r, ]
-#    tmp = G %*% s
-#    Ps[r] = sum(tmp == ncol(G))
+#    tmp = I %*% s
+#    Ps[r] = sum(tmp == ncol(I))
 #  }
-#  Ps = Ps / nrow(G) * 100
+#  Ps = Ps / nrow(I) * 100
 #  max(Ps)
 

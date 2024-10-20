@@ -2,8 +2,8 @@
 % Please edit documentation in R/bgm.R
 \name{bgm}
 \alias{bgm}
-\title{Bayesian edge selection or Bayesian estimation for Markov Random Fields of
-mixed binary and ordinal variables using MCMC.}
+\title{Bayesian edge selection or Bayesian estimation for a Markov random field
+model for binary and/or ordinal variables.}
 \usage{
 bgm(
   x,
@@ -15,10 +15,11 @@ bgm(
   threshold_alpha = 0.5,
   threshold_beta = 0.5,
   edge_selection = TRUE,
-  edge_prior = c("Bernoulli", "Beta-Bernoulli"),
+  edge_prior = c("Bernoulli", "Beta-Bernoulli", "Stochastic-Block"),
   inclusion_probability = 0.5,
   beta_bernoulli_alpha = 1,
   beta_bernoulli_beta = 1,
+  dirichlet_alpha = 1,
   na.action = c("listwise", "impute"),
   save = FALSE,
   display_progress = TRUE
@@ -81,7 +82,7 @@ the edges of the MRF in addition to estimating its parameters
 network is modeled with binary indicator variables that capture the structure
 of the network. The argument \code{edge_prior} is used to set a prior
 distribution for the edge indicator variables, i.e., the structure of the
-network. Currently, two options are implemented: The Bernoulli model
+network. Currently, three options are implemented: The Bernoulli model
 \code{edge_prior = "Bernoulli"} assumes that the probability that an edge
 between two variables is included is equal to \code{inclusion_probability}
 and independent of other edges or variables. When
@@ -91,7 +92,16 @@ structure is given the same prior weight. The Beta-Bernoulli model
 inclusion probability with shape parameters \code{beta_bernoulli_alpha} and
 \code{beta_bernoulli_beta}. If \code{beta_bernoulli_alpha = 1} and
 \code{beta_bernoulli_beta = 1}, this means that networks with the same
-complexity (number of edges) get the same prior weight. The default is
+complexity (number of edges) get the same prior weight. The Stochastic Block
+model \code{edge_prior = "Stochastic-Block"} assumes that nodes can be
+organized into blocks or clusters. In principle, the assignment of nodes to
+such clusters is unknown, and the model as implemented here considers all
+possible options \insertCite{@i.e., specifies a Dirichlet process on the node to block
+allocation as described by @GengEtAl_2019}{bgms}. This model is advantageous
+when nodes are expected to fall into distinct clusters. The inclusion
+probabilities for the edges are defined at the level of the clusters, with a
+beta prior for the unknown inclusion probability with shape parameters
+\code{beta_bernoulli_alpha} and \code{beta_bernoulli_beta}. The default is
 \code{edge_prior = "Bernoulli"}.}
 
 \item{inclusion_probability}{The prior edge inclusion probability for the
@@ -103,6 +113,9 @@ The default is \code{inclusion_probability = 0.5}.}
 the Beta prior density for the Bernoulli inclusion probability. Must be
 positive numbers. Defaults to \code{beta_bernoulli_alpha = 1} and
 \code{beta_bernoulli_beta = 1}.}
+
+\item{dirichlet_alpha}{The shape of the Dirichlet prior on the node-to-block
+allocation parameters for the Stochastic Block model.}
 
 \item{na.action}{How do you want the function to handle missing data? If
 \code{na.action = "listwise"}, listwise deletion is used. If
@@ -124,10 +137,10 @@ The default is \code{TRUE}.}
 }
 \value{
 If \code{save = FALSE} (the default), the result is a list of class
-``bgms'' containing the following matrices:
+``bgms'' containing the following matrices with model-averaged quantities:
 \itemize{
-\item \code{gamma}: A matrix with \code{p} rows and \code{p} columns,
-containing posterior inclusion probabilities of individual edges.
+\item \code{indicator}: A matrix with \code{p} rows and \code{p} columns,
+containing the posterior inclusion probabilities of individual edges.
 \item \code{interactions}: A matrix with \code{p} rows and \code{p} columns,
 containing model-averaged posterior means of the pairwise associations.
 \item \code{thresholds}: A matrix with \code{p} rows and \code{max(m)}
@@ -139,7 +152,7 @@ models the offset to the reference category.
 
 If \code{save = TRUE}, the result is a list of class ``bgms'' containing:
 \itemize{
-\item \code{gamma}: A matrix with \code{iter} rows and
+\item \code{indicator}: A matrix with \code{iter} rows and
 \code{p * (p - 1) / 2} columns, containing the edge inclusion indicators from
 every iteration of the Gibbs sampler.
 \item \code{interactions}: A matrix with \code{iter} rows and
@@ -160,7 +173,7 @@ parameters and possibly edge indicators for a Markov Random Field model for
 mixed binary and ordinal variables.
 }
 \details{
-Currently, bgm supports two types of ordinal variables. The regular, default,
+Currently, \code{bgm} supports two types of ordinal variables. The regular, default,
 ordinal variable type has no restrictions on its distribution. Every response
 category except the first receives its own threshold parameter. The
 Blume-Capel ordinal variable assumes that there is a specific reference
@@ -217,7 +230,7 @@ included); the Bernoulli prior and the Beta-Bernoulli prior.
 
  par(mar = c(6, 5, 1, 1))
  plot(x = fit$interactions[lower.tri(fit$interactions)],
-      y = fit$gamma[lower.tri(fit$gamma)], ylim = c(0, 1),
+      y = fit$indicator[lower.tri(fit$indicator)], ylim = c(0, 1),
       xlab = "", ylab = "", axes = FALSE, pch = 21, bg = "gray", cex = 1.3)
  abline(h = 0, lty = 2, col = "gray")
  abline(h = 1, lty = 2, col = "gray")
@@ -234,7 +247,7 @@ included); the Bernoulli prior and the Beta-Bernoulli prior.
 
  #For the default choice of the structure prior, the prior odds equal one:
  prior.odds = 1
- posterior.inclusion = fit$gamma[lower.tri(fit$gamma)]
+ posterior.inclusion = fit$indicator[lower.tri(fit$indicator)]
  posterior.odds = posterior.inclusion / (1 - posterior.inclusion)
  log.bayesfactor = log(posterior.odds / prior.odds)
  log.bayesfactor[log.bayesfactor > 5] = 5
@@ -282,4 +295,7 @@ included); the Bernoulli prior and the Beta-Bernoulli prior.
  #Restore user par() settings
  par(op)
 }
+}
+\references{
+\insertAllCited{}
 }
