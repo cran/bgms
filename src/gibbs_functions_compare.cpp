@@ -505,13 +505,10 @@ void compare_metropolis_interaction(NumericMatrix interactions,
         update_proposal_sd = 1.0;
       }
 
-      if(update_proposal_sd < epsilon_lo) {
-        update_proposal_sd = epsilon_lo;
-      } else if (update_proposal_sd > epsilon_hi) {
-        update_proposal_sd = epsilon_hi;
-      }
+      update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
 
       proposal_sd_interaction(variable1, variable2) = update_proposal_sd;
+      proposal_sd_interaction(variable2, variable1) = update_proposal_sd;
     }
   }
 }
@@ -831,13 +828,10 @@ void compare_metropolis_pairwise_difference(NumericMatrix pairwise_difference,
           update_proposal_sd = 1.0;
         }
 
-        if(update_proposal_sd < epsilon_lo) {
-          update_proposal_sd = epsilon_lo;
-        } else if (update_proposal_sd > epsilon_hi) {
-          update_proposal_sd = epsilon_hi;
-        }
+        update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
 
         proposal_sd_pairwise_difference(variable1, variable2) = update_proposal_sd;
+        proposal_sd_pairwise_difference(variable2, variable1) = update_proposal_sd;
       }
     }
   }
@@ -1237,11 +1231,8 @@ void compare_metropolis_main_difference_regular(NumericMatrix thresholds,
           update_proposal_sd = 1.0;
         }
 
-        if(update_proposal_sd < epsilon_lo) {
-          update_proposal_sd = epsilon_lo;
-        } else if (update_proposal_sd > epsilon_hi) {
-          update_proposal_sd = epsilon_hi;
-        }
+        update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
+
         proposal_sd_main_difference(variable, category) = update_proposal_sd;
       } else {
         main_difference(variable, category) = 0.0;
@@ -1295,7 +1286,7 @@ double compare_log_pseudolikelihood_ratio_main_differences(NumericMatrix thresho
       denominator_proposed += std::exp(exponent +
         thresholds(variable, category) -
         .5 * proposed_states[category]);
-        denominator_current += std::exp(exponent +
+      denominator_current += std::exp(exponent +
         thresholds(variable, category) -
         .5 * current_states[category]);
     }
@@ -1321,7 +1312,7 @@ double compare_log_pseudolikelihood_ratio_main_differences(NumericMatrix thresho
       denominator_proposed += std::exp(exponent +
         thresholds(variable, category) +
         .5 * proposed_states[category]);
-        denominator_current += std::exp(exponent +
+      denominator_current += std::exp(exponent +
         thresholds(variable, category) +
         .5 * current_states[category]);
     }
@@ -1370,17 +1361,14 @@ void compare_metropolis_main_difference_regular_between_model(NumericMatrix thre
       if(indicator(variable, variable) == 0) {
         proposed_state = R::rnorm(current_state, proposal_sd_main_difference(variable, category));
         proposed_states[category] = proposed_state;
-      } else {
-        proposed_state = 0.0;
-        proposed_states[category] = proposed_state;
-      }
-      if(indicator(variable, variable) == 0) {
         log_prob += R::dcauchy(proposed_state, 0.0, main_difference_scale, true);
         log_prob -= R::dnorm(proposed_state,
                              current_state,
                              proposal_sd_main_difference(variable, category),
                              true);
       } else {
+        proposed_state = 0.0;
+        proposed_states[category] = proposed_state;
         log_prob -= R::dcauchy(current_state, 0.0, main_difference_scale, true);
         log_prob += R::dnorm(current_state,
                              proposed_state,
@@ -1650,15 +1638,9 @@ void compare_metropolis_threshold_blumecapel(NumericMatrix thresholds,
     update_proposal_sd = 1.0;
   }
 
-  if(update_proposal_sd < epsilon_lo) {
-    update_proposal_sd = epsilon_lo;
-  } else if (update_proposal_sd > epsilon_hi) {
-    update_proposal_sd = epsilon_hi;
-  }
+  update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
 
   proposal_sd_blumecapel(variable, 0) = update_proposal_sd;
-
-
 
   //---------------------------------------------------------------------------|
   // Adaptive Metropolis for the quadratic Blume-Capel parameter
@@ -1717,11 +1699,7 @@ void compare_metropolis_threshold_blumecapel(NumericMatrix thresholds,
     update_proposal_sd = 1.0;
   }
 
-  if(update_proposal_sd < epsilon_lo) {
-    update_proposal_sd = epsilon_lo;
-  } else if (update_proposal_sd > epsilon_hi) {
-    update_proposal_sd = epsilon_hi;
-  }
+  update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
 
   proposal_sd_blumecapel(variable, 1) = update_proposal_sd;
 }
@@ -1956,11 +1934,7 @@ void compare_metropolis_main_difference_blumecapel(NumericMatrix thresholds,
     update_proposal_sd = 1.0;
   }
 
-  if(update_proposal_sd < epsilon_lo) {
-    update_proposal_sd = epsilon_lo;
-  } else if (update_proposal_sd > epsilon_hi) {
-    update_proposal_sd = epsilon_hi;
-  }
+  update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
 
   proposal_sd_main_difference(variable, 0) = update_proposal_sd;
 
@@ -2020,11 +1994,7 @@ void compare_metropolis_main_difference_blumecapel(NumericMatrix thresholds,
     update_proposal_sd = 1.0;
   }
 
-  if(update_proposal_sd < epsilon_lo) {
-    update_proposal_sd = epsilon_lo;
-  } else if (update_proposal_sd > epsilon_hi) {
-    update_proposal_sd = epsilon_hi;
-  }
+  update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
 
   proposal_sd_main_difference(variable, 1) = update_proposal_sd;
 }
@@ -2622,15 +2592,13 @@ List compare_gibbs_sampler(IntegerMatrix observations_gr1,
   std::fill(proposal_sd_blumecapel_gr2.begin(), proposal_sd_blumecapel_gr2.end(), 1.0);
 
   //Parameters for the Robbins-Monro approach for adaptive Metropolis ----------
-  double phi = .75;
+  double phi = 0.75;
   double target_ar = 0.234;
-  double epsilon_lo;
+  double epsilon_lo = 1.0 / static_cast<double>(no_persons_gr1);
   if(no_persons_gr1 > no_persons_gr2) {
-    epsilon_lo = 1 / no_persons_gr2;
-  } else {
-    epsilon_lo = 1 / no_persons_gr1;
+    epsilon_lo = 1.0 / static_cast<double>(no_persons_gr2);
   }
-  double epsilon_hi = 20.0;
+  double epsilon_hi = 2.0;
 
   //Randomized index for the pairwise updates ----------------------------------
   IntegerVector v = seq(0, no_interactions - 1);
@@ -2682,12 +2650,27 @@ List compare_gibbs_sampler(IntegerMatrix observations_gr1,
   NumericMatrix rest_matrix_gr1(no_persons_gr1, no_variables);
   NumericMatrix rest_matrix_gr2(no_persons_gr2, no_variables);
 
-  //Progress bar ---------------------------------------------------------------
-  Progress p(iter + burnin, display_progress);
-
   //The Gibbs sampler ----------------------------------------------------------
   //First, we do burn-in iterations---------------------------------------------
-  for(int iteration = 0; iteration < burnin; iteration++) {
+
+  //When difference_selection = true we do 2 * burnin iterations. The first
+  // burnin iterations without selection to ensure good starting values, and
+  // proposal calibration. The second burnin iterations with selection.
+
+  int first_burnin = burnin;
+  int second_burnin = 0;
+  if(difference_selection == true)
+    second_burnin = burnin;
+  bool input_difference_selection = difference_selection;
+  difference_selection = false;
+
+  //Progress bar ---------------------------------------------------------------
+  Progress p(iter + first_burnin + second_burnin, display_progress);
+
+  for(int iteration = 0; iteration < first_burnin + second_burnin; iteration++) {
+    if(iteration >= first_burnin) {
+      difference_selection = input_difference_selection;
+    }
     if (Progress::check_abort()) {
       if(independent_thresholds == true) {
         return List::create(Named("pairwise_difference_indicator") = out_indicator_pairwise_difference,
@@ -2836,6 +2819,8 @@ List compare_gibbs_sampler(IntegerMatrix observations_gr1,
       }
     }
   }
+  //To ensure that difference_selection is reinstated to the input value -------
+  difference_selection = input_difference_selection;
 
   //The post burn-in iterations ------------------------------------------------
   for(int iteration = 0; iteration < iter; iteration++) {

@@ -284,13 +284,15 @@ void metropolis_thresholds_blumecapel(NumericMatrix thresholds,
     log_prob = std::exp(log_prob);
   }
 
-  proposal_sd_blumecapel(variable, 0) = proposal_sd_blumecapel(variable, 0) +
+  double update_proposal_sd = proposal_sd_blumecapel(variable, 0) +
     (log_prob - target_ar) * std::exp(-log(t) * phi);
-  if(proposal_sd_blumecapel(variable, 0) < epsilon_lo) {
-    proposal_sd_blumecapel(variable, 0) = epsilon_lo;
-  } else if (proposal_sd_blumecapel(variable, 0) > epsilon_hi) {
-    proposal_sd_blumecapel(variable, 0) = epsilon_hi;
+
+  if(std::isnan(update_proposal_sd) == true) {
+    update_proposal_sd = 1.0;
   }
+
+  update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
+  proposal_sd_blumecapel(variable, 0) = update_proposal_sd;
 
   //----------------------------------------------------------------------------
   //Adaptive Metropolis for the quadratic Blume-Capel parameter
@@ -363,13 +365,16 @@ void metropolis_thresholds_blumecapel(NumericMatrix thresholds,
     log_prob = std::exp(log_prob);
   }
 
-  proposal_sd_blumecapel(variable, 1) = proposal_sd_blumecapel(variable, 1) +
+  update_proposal_sd = proposal_sd_blumecapel(variable, 1) +
     (log_prob - target_ar) * std::exp(-log(t) * phi);
-  if(proposal_sd_blumecapel(variable, 1) < epsilon_lo) {
-    proposal_sd_blumecapel(variable, 1) = epsilon_lo;
-  } else if (proposal_sd_blumecapel(variable, 1) > epsilon_hi) {
-    proposal_sd_blumecapel(variable, 1) = epsilon_hi;
+
+  if(std::isnan(update_proposal_sd) == true) {
+    update_proposal_sd = 1.0;
   }
+
+  update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
+  proposal_sd_blumecapel(variable, 1) = update_proposal_sd;
+
 }
 
 // ----------------------------------------------------------------------------|
@@ -556,13 +561,17 @@ void metropolis_interactions(NumericMatrix interactions,
         } else {
           log_prob = std::exp(log_prob);
         }
-        proposal_sd(variable1, variable2) = proposal_sd(variable1, variable2) +
+
+        double update_proposal_sd = proposal_sd(variable1, variable2) +
           (log_prob - target_ar) * std::exp(-log(t) * phi);
-        if(proposal_sd(variable1, variable2) < epsilon_lo) {
-          proposal_sd(variable1, variable2) = epsilon_lo;
-        } else if (proposal_sd(variable1, variable2) > epsilon_hi) {
-          proposal_sd(variable1, variable2) = epsilon_hi;
+
+        if(std::isnan(update_proposal_sd) == true) {
+          update_proposal_sd = 1.0;
         }
+
+        update_proposal_sd = std::clamp(update_proposal_sd, epsilon_lo, epsilon_hi);
+        proposal_sd(variable1, variable2) = update_proposal_sd;
+
       }
     }
   }
@@ -809,10 +818,10 @@ List gibbs_sampler(IntegerMatrix observations,
   IntegerMatrix index(no_interactions, 3);
 
   //Parameters of adaptive proposals -------------------------------------------
-  double phi = .75;
+  double phi = 0.75;
   double target_ar = 0.234;
-  double epsilon_lo = 1 / no_persons;
-  double epsilon_hi = 20.0;
+  double epsilon_lo = 1.0 / static_cast<double>(no_persons);
+  double epsilon_hi = 2.0;
 
   //The resizing based on ``save'' could probably be prettier ------------------
   int nrow = no_variables;
@@ -885,12 +894,27 @@ List gibbs_sampler(IntegerMatrix observations,
                                 no_variables + 10);
   }
 
-  //Progress bar
-  Progress p(iter + burnin, display_progress);
-
   //The Gibbs sampler ----------------------------------------------------------
   //First, we do burn-in iterations---------------------------------------------
-  for(int iteration = 0; iteration < burnin; iteration++) {
+
+  //When edge_selection = true we do 2 * burnin iterations. The first burnin
+  // iterations without selection to ensure good starting values, and proposal
+  // calibration. The second burnin iterations with selection.
+
+  int first_burnin = burnin;
+  int second_burnin = 0;
+  if(edge_selection == true)
+    second_burnin = burnin;
+  bool input_edge_selection = edge_selection;
+  edge_selection = false;
+
+  //Progress bar ---------------------------------------------------------------
+  Progress p(iter + first_burnin + second_burnin, display_progress);
+
+  for(int iteration = 0; iteration < first_burnin + second_burnin; iteration++) {
+    if(iteration >= first_burnin) {
+      edge_selection = input_edge_selection;
+    }
     if (Progress::check_abort()) {
       return List::create(Named("indicator") = out_indicator,
                           Named("interactions") = out_interactions,
@@ -1008,6 +1032,8 @@ List gibbs_sampler(IntegerMatrix observations,
       }
     }
   }
+  //To ensure that edge_selection is reinstated to the input value -------------
+  edge_selection = input_edge_selection;
 
   //The post burn-in iterations ------------------------------------------------
   for(int iteration = 0; iteration < iter; iteration++) {
