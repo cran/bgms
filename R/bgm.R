@@ -1,285 +1,429 @@
-#' Bayesian edge selection or Bayesian estimation for a Markov random field
-#' model for binary and/or ordinal variables.
+#' Bayesian Estimation or Edge Selection for Markov Random Fields
 #'
-#' The function \code{bgm} explores the joint pseudoposterior distribution of
-#' parameters and possibly edge indicators for a Markov Random Field model for
-#' mixed binary and ordinal variables.
+#' @description
+#' The \code{bgm} function estimates the pseudoposterior distribution of
+#' category thresholds (main effects) and pairwise interaction parameters of a
+#' Markov Random Field (MRF) model for binary and/or ordinal variables.
+#' Optionally, it performs Bayesian edge selection using spike-and-slab
+#' priors to infer the network structure.
 #'
-#' Currently, \code{bgm} supports two types of ordinal variables. The regular, default,
-#' ordinal variable type has no restrictions on its distribution. Every response
-#' category except the first receives its own threshold parameter. The
-#' Blume-Capel ordinal variable assumes that there is a specific reference
-#' category, such as the ``neutral'' in a Likert scale, and responses are scored
-#' in terms of their distance to this reference category. Specifically, the
-#' Blume-Capel model specifies the following quadratic model for the threshold
-#' parameters:
-#' \deqn{\mu_{\text{c}} = \alpha \times \text{c} + \beta \times (\text{c} - \text{r})^2,}{{\mu_{\text{c}} = \alpha \times \text{c} + \beta \times (\text{c} - \text{r})^2,}}
-#' where \eqn{\mu_{\text{c}}}{\mu_{\text{c}}} is the threshold for category c.
-#' The parameter \eqn{\alpha}{\alpha} models a linear trend across categories,
-#' such that \eqn{\alpha > 0}{\alpha > 0} leads to an increasing number of
-#' observations in higher response categories and \eqn{\alpha <0}{\alpha <0}
-#' leads to a decreasing number of observations in higher response categories.
-#' The parameter \eqn{\beta}{\beta} models the response style in terms of an
-#' offset with respect to the reference category \eqn{r}{r}; if \eqn{\beta<0}{\beta<0}
-#' there is a preference to respond in the reference category (i.e., the model
-#' introduces a penalty for responding in a category further away from the
-#' reference_category category \code{r}), while if \eqn{\beta > 0}{\beta > 0}
-#' there is preference to score in the extreme categories further away from the
-#' reference_category category.
+#' @details
+#' This function models the joint distribution of binary and ordinal variables
+#' using a Markov Random Field, with support for edge selection through Bayesian
+#' variable selection. The statistical foundation of the model is described in
+#' \insertCite{MarsmanVandenBerghHaslbeck_2024;textual}{bgms}, where the ordinal
+#' MRF model and its Bayesian estimation procedure were first introduced. While
+#' the implementation in \pkg{bgms} has since been extended and updated (e.g.,
+#' alternative priors, parallel chains, HMC/NUTS warmup), it builds on that
+#' original framework.
 #'
-#' The Bayesian estimation procedure (\code{edge_selection = FALSE}) simply
-#' estimates the threshold and pairwise interaction parameters of the ordinal
-#' MRF, while the Bayesian edge selection procedure
-#' (\code{edge_selection = TRUE}) also models the probability that individual
-#' edges should be included or excluded from the model. Bayesian edge selection
-#' imposes a discrete spike and slab prior distribution on the pairwise
-#' interactions. By formulating it as a mixture of mutually singular
-#' distributions, the function can use a combination of Metropolis-Hastings and
-#' Gibbs sampling to create a Markov chain that has the joint posterior
-#' distribution as an invariant. The current option for the slab distribution is
-#' a Cauchy with an optional scaling parameter. The slab distribution is also used
-#' as the prior for the interaction parameters for Bayesian estimation. A
-#' beta-prime distribution is used for the exponent of the category parameters.
-#' For Bayesian edge selection, two prior distributions are implemented for the
-#' edge inclusion variables (i.e., the prior probability that an edge is
-#' included); the Bernoulli prior and the Beta-Bernoulli prior.
+#' Key components of the model are described in the sections below.
+#'
+#' @seealso \code{vignette("intro", package = "bgms")} for a worked example.
+#'
+#' @section Ordinal Variables:
+#' The function supports two types of ordinal variables:
+#'
+#' \strong{Regular ordinal variables}:
+#' Assigns a category threshold parameter to each response category except the
+#' lowest. The model imposes no additional constraints on the distribution of
+#' category responses.
+#'
+#' \strong{Blume-Capel ordinal variables}:
+#' Assume a baseline category (e.g., a “neutral” response) and score responses
+#' by distance from this baseline. Category thresholds are modeled as:
+#'
+#' \deqn{\mu_{c} = \alpha \cdot c + \beta \cdot (c - b)^2}
+#'
+#' where:
+#' \itemize{
+#'   \item \eqn{\mu_{c}}: category threshold for category \eqn{c}
+#'   \item \eqn{\alpha}: linear trend across categories
+#'   \item \eqn{\beta}: preference toward or away from the baseline
+#'    \itemize{
+#'      \item If \eqn{\beta < 0}, the model favors responses near the baseline
+#'      category;
+#'      \item if \eqn{\beta > 0}, it favors responses farther away (i.e.,
+#'      extremes).
+#'    }
+#'   \item \eqn{b}: baseline category
+#' }
+#'
+#'
+#' @section Edge Selection:
+#' When \code{edge_selection = TRUE}, the function performs Bayesian variable
+#' selection on the pairwise interactions (edges) in the MRF using
+#' spike-and-slab priors.
+#'
+#' Supported priors for edge inclusion:
+#' \itemize{
+#'   \item \strong{Bernoulli}: Fixed inclusion probability across edges.
+#'   \item \strong{Beta-Bernoulli}: Inclusion probability is assigned a Beta
+#'   prior distribution.
+#'   \item \strong{Stochastic-Block}: Cluster-based edge priors with Beta,
+#'   Dirichlet, and Poisson hyperpriors.
+#' }
+#'
+#' All priors operate via binary indicator variables controlling the inclusion
+#' or exclusion of each edge in the MRF.
+#'
+#' @section Prior Distributions:
+#'
+#' \itemize{
+#'   \item \strong{Pairwise effects}: Modeled with a Cauchy (slab) prior.
+#'   \item \strong{Main effects}: Modeled using a beta-prime
+#'   distribution.
+#'   \item \strong{Edge indicators}: Use either a Bernoulli, Beta-Bernoulli, or
+#'   Stochastic-Block prior (as above).
+#' }
+#'
+#' @section Sampling Algorithms and Warmup:
+#'
+#' Parameters are updated within a Gibbs framework, but the conditional
+#' updates can be carried out using different algorithms:
+#' \itemize{
+#'   \item \strong{Adaptive Metropolis–Hastings}: Componentwise random–walk
+#'     updates for main effects and pairwise effects. Proposal standard
+#'     deviations are adapted during burn–in via Robbins–Monro updates
+#'     toward a target acceptance rate.
+#'
+#'   \item \strong{Hamiltonian Monte Carlo (HMC)}: Joint updates of all
+#'     parameters using fixed–length leapfrog trajectories. Step size is
+#'     tuned during warmup via dual–averaging; the diagonal mass matrix can
+#'     also be adapted if \code{learn_mass_matrix = TRUE}.
+#'
+#'   \item \strong{No–U–Turn Sampler (NUTS)}: An adaptive extension of HMC
+#'     that dynamically chooses trajectory lengths. Warmup uses a staged
+#'     adaptation schedule (fast–slow–fast) to stabilize step size and, if
+#'     enabled, the mass matrix.
+#' }
+#'
+#' When \code{edge_selection = TRUE}, updates of edge–inclusion indicators
+#' are carried out with Metropolis–Hastings steps. These are switched on
+#' after the core warmup phase, ensuring that graph updates occur only once
+#' the samplers’ tuning parameters (step size, mass matrix, proposal SDs)
+#' have stabilized.
+#'
+#' After warmup, adaptation is disabled. Step size and mass matrix are
+#' fixed at their learned values, and proposal SDs remain constant.
+#'
+#' @section Warmup and Adaptation:
+#'
+#' The warmup procedure in \code{bgm} is based on the multi–stage adaptation
+#' schedule used in Stan \insertCite{stan-manual}{bgms}. Warmup iterations are
+#' split into several phases:
+#'
+#' \itemize{
+#'   \item \strong{Stage 1 (fast adaptation)}: A short initial interval
+#'     where only step size (for HMC/NUTS) is adapted, allowing the chain
+#'     to move quickly toward the typical set.
+#'
+#'   \item \strong{Stage 2 (slow windows)}: A sequence of expanding,
+#'     memoryless windows where both step size and, if
+#'     \code{learn_mass_matrix = TRUE}, the diagonal mass matrix are
+#'     adapted. Each window ends with a reset of the dual–averaging scheme
+#'     for improved stability.
+#'
+#'   \item \strong{Stage 3a (final fast interval)}: A short interval at the
+#'     end of the core warmup where the step size is adapted one final time.
+#'
+#'   \item \strong{Stage 3b (proposal–SD tuning)}: Only active when
+#'     \code{edge_selection = TRUE} under HMC/NUTS. In this phase,
+#'     Robbins–Monro adaptation of proposal standard deviations is
+#'     performed for the Metropolis steps used in edge–selection moves.
+#'
+#'   \item \strong{Stage 3c (graph selection warmup)}: Also only relevant
+#'     when \code{edge_selection = TRUE}. At the start of this phase, a
+#'     random graph structure is initialized, and Metropolis–Hastings
+#'     updates for edge inclusion indicators are switched on.
+#' }
+#'
+#' When \code{edge_selection = FALSE}, the total number of warmup iterations
+#' equals the user–specified \code{burnin}. When \code{edge_selection = TRUE}
+#' and \code{update_method} is \code{"nuts"} or \code{"hamiltonian-mc"},
+#' the schedule automatically appends additional Stage-3b and Stage-3c
+#' intervals, so the total warmup is strictly greater than the requested
+#' \code{burnin}.
+#'
+#' After all warmup phases, the sampler transitions to the sampling phase
+#' with adaptation disabled. Step size and mass matrix (for HMC/NUTS) are
+#' fixed at their learned values, and proposal SDs remain constant.
+#'
+#' This staged design improves stability of proposals and ensures that both
+#' local parameters (step size) and global parameters (mass matrix, proposal
+#' SDs) are tuned before collecting posterior samples.
+#'
+#' For adaptive Metropolis–Hastings runs, step size and mass matrix
+#' adaptation are not relevant. Proposal SDs are tuned continuously during
+#' burn–in using Robbins–Monro updates, without staged fast/slow intervals.
+#'
+#' @section Missing Data:
+#'
+#' If \code{na_action = "listwise"}, observations with missing values are
+#' removed.
+#' If \code{na_action = "impute"}, missing values are imputed during Gibbs
+#' sampling.
 #'
 #' @param x A data frame or matrix with \code{n} rows and \code{p} columns
-#' containing binary and ordinal variables for \code{n} independent observations
-#' and \code{p} variables in the network. Regular binary and ordinal variables
-#' are recoded as non-negative integers \code{(0, 1, ..., m)} if not already
-#' done. Unobserved categories are collapsed into other categories after
-#' recoding (i.e., if category 1 is unobserved, the data are recoded from
-#' (0, 2) to (0, 1)). Blume-Capel ordinal variables are also coded as
-#' non-negative integers if not already done. However, since ``distance'' to the
-#' reference category plays an important role in this model, unobserved
-#' categories are not collapsed after recoding.
-#' @param variable_type What kind of variables are there in \code{x}? Can be a
-#' single character string specifying the variable type of all \code{p}
-#' variables at once or a vector of character strings of length \code{p}
-#' specifying the type for each variable in \code{x} separately. Currently, bgm
-#' supports ``ordinal'' and ``blume-capel''. Binary variables are automatically
-#' treated as ``ordinal’’. Defaults to \code{variable_type = "ordinal"}.
-#' @param reference_category The reference category in the Blume-Capel model.
-#' Should be an integer within the range of integer scores observed for the
-#' ``blume-capel'' variable. Can be a single number specifying the reference
-#' category for all Blume-Capel variables at once, or a vector of length
-#' \code{p} where the \code{i}-th element contains the reference category for
-#' variable \code{i} if it is Blume-Capel, and bgm ignores its elements for
-#' other variable types. The value of the reference category is also recoded
-#' when bgm recodes the corresponding observations. Only required if there is at
-#' least one variable of type ``blume-capel''.
-#' @param iter How many iterations should the Gibbs sampler run? The default of
-#' \code{1e4} is for illustrative purposes. For stable estimates, it is
-#' recommended to run the Gibbs sampler for at least \code{1e5} iterations.
-#' @param burnin The number of iterations of the Gibbs sampler before saving its
-#' output. Since it may take some time for the Gibbs sampler to converge to the
-#' posterior distribution, it is recommended not to set this number too low.
-#' When \code{edge_selection = TRUE}, the bgm function will perform
-#' \code{2 * burnin} iterations, first \code{burnin} iterations without edge
-#' selection, then \code{burnin} iterations with edge selection. This helps
-#' ensure that the Markov chain used for estimation starts with good parameter
-#' values and that the adaptive MH proposals are properly calibrated.
-#' @param interaction_scale The scale of the Cauchy distribution that is used as
-#' a prior for the pairwise interaction parameters. Defaults to \code{2.5}.
-#' @param threshold_alpha,threshold_beta The shape parameters of the beta-prime
-#' prior density for the threshold parameters. Must be positive values. If the
-#' two values are equal, the prior density is symmetric about zero. If
-#' \code{threshold_beta} is greater than \code{threshold_alpha}, the
-#' distribution is skewed to the left, and if \code{threshold_beta} is less than
-#' \code{threshold_alpha}, it is skewed to the right. Smaller values tend to
-#' lead to more diffuse prior distributions.
-#' @param edge_selection Should the function perform Bayesian edge selection on
-#' the edges of the MRF in addition to estimating its parameters
-#' (\code{edge_selection = TRUE}), or should it just estimate the parameters
-#' (\code{edge_selection = FALSE})? The default is \code{edge_selection = TRUE}.
-#' @param edge_prior The inclusion or exclusion of individual edges in the
-#' network is modeled with binary indicator variables that capture the structure
-#' of the network. The argument \code{edge_prior} is used to set a prior
-#' distribution for the edge indicator variables, i.e., the structure of the
-#' network. Currently, three options are implemented: The Bernoulli model
-#' \code{edge_prior = "Bernoulli"} assumes that the probability that an edge
-#' between two variables is included is equal to \code{inclusion_probability}
-#' and independent of other edges or variables. When
-#' \code{inclusion_probability = 0.5}, this means that each possible network
-#' structure is given the same prior weight. The Beta-Bernoulli model
-#' \code{edge_prior = "Beta-Bernoulli"} assumes a beta prior for the unknown
-#' inclusion probability with shape parameters \code{beta_bernoulli_alpha} and
-#' \code{beta_bernoulli_beta}. If \code{beta_bernoulli_alpha = 1} and
-#' \code{beta_bernoulli_beta = 1}, this means that networks with the same
-#' complexity (number of edges) get the same prior weight. The Stochastic Block
-#' model \code{edge_prior = "Stochastic-Block"} assumes that nodes can be
-#' organized into blocks or clusters. In principle, the assignment of nodes to
-#' such clusters is unknown, and the model as implemented here considers all
-#' possible options \insertCite{@i.e., specifies a Dirichlet process on the node to block
-#' allocation as described by @GengEtAl_2019}{bgms}. This model is advantageous
-#' when nodes are expected to fall into distinct clusters. The inclusion
-#' probabilities for the edges are defined at the level of the clusters, with a
-#' beta prior for the unknown inclusion probability with shape parameters
-#' \code{beta_bernoulli_alpha} and \code{beta_bernoulli_beta}. The default is
-#' \code{edge_prior = "Bernoulli"}.
-#' @param inclusion_probability The prior edge inclusion probability for the
-#' Bernoulli model. Can be a single probability, or a matrix of \code{p} rows
-#' and \code{p} columns specifying an inclusion probability for each edge pair.
-#' The default is \code{inclusion_probability = 0.5}.
-#' @param beta_bernoulli_alpha,beta_bernoulli_beta The two shape parameters of
-#' the Beta prior density for the Bernoulli inclusion probability. Must be
-#' positive numbers. Defaults to \code{beta_bernoulli_alpha = 1} and
-#' \code{beta_bernoulli_beta = 1}.
-#' @param dirichlet_alpha The shape of the Dirichlet prior on the node-to-block
-#' allocation parameters for the Stochastic Block model.
-#' @param na.action How do you want the function to handle missing data? If
-#' \code{na.action = "listwise"}, listwise deletion is used. If
-#' \code{na.action = "impute"}, missing data are imputed iteratively during the
-#' MCMC procedure. Since imputation of missing data can have a negative impact
-#' on the convergence speed of the MCMC procedure, it is recommended to run the
-#' MCMC for more iterations. Also, since the numerical routines that search for
-#' the mode of the posterior do not have an imputation option, the bgm function
-#' will automatically switch to \code{interaction_prior = "Cauchy"} and
-#' \code{adaptive = TRUE}.
-#' @param save Should the function collect and return all samples from the Gibbs
-#' sampler (\code{save = TRUE})? Or should it only return the (model-averaged)
-#' posterior means (\code{save = FALSE})? Defaults to \code{FALSE}.
-#' @param display_progress Should the function show a progress bar
-#' (\code{display_progress = TRUE})? Or not (\code{display_progress = FALSE})?
-#' The default is \code{TRUE}.
+#'   containing binary and ordinal responses. Variables are automatically
+#'   recoded to non-negative integers (\code{0, 1, ..., m}). For regular
+#'   ordinal variables, unobserved categories are collapsed; for
+#'   Blume–Capel variables, all categories are retained.
 #'
-#' @return If \code{save = FALSE} (the default), the result is a list of class
-#' ``bgms'' containing the following matrices with model-averaged quantities:
+#' @param variable_type Character or character vector. Specifies the type of
+#'   each variable in \code{x}. Allowed values: \code{"ordinal"} or
+#'   \code{"blume-capel"}. Binary variables are automatically treated as
+#'   \code{"ordinal"}. Default: \code{"ordinal"}.
+#'
+#' @param baseline_category Integer or vector. Baseline category used in
+#'   Blume–Capel variables. Can be a single integer (applied to all) or a
+#'   vector of length \code{p}. Required if at least one variable is of type
+#'   \code{"blume-capel"}.
+#'
+#' @param iter Integer. Number of post–burn-in iterations (per chain).
+#'   Default: \code{1e3}.
+#'
+#' @param warmup Integer. Number of warmup iterations before collecting
+#'   samples. A minimum of 1000 iterations is enforced, with a warning if a
+#'   smaller value is requested. Default: \code{1e3}.
+#'
+#' @param pairwise_scale Double. Scale of the Cauchy prior for pairwise
+#'   interaction parameters. Default: \code{2.5}.
+#'
+#' @param main_alpha,main_beta Double. Shape parameters of the
+#'   beta-prime prior for threshold parameters. Must be positive. If equal,
+#'   the prior is symmetric. Defaults: \code{main_alpha = 0.5} and
+#'   \code{main_beta = 0.5}.
+#'
+#' @param edge_selection Logical. Whether to perform Bayesian edge selection.
+#'   If \code{FALSE}, the model estimates all edges. Default: \code{TRUE}.
+#'
+#' @param edge_prior Character. Specifies the prior for edge inclusion.
+#'   Options: \code{"Bernoulli"}, \code{"Beta-Bernoulli"}, or
+#'   \code{"Stochastic-Block"}. Default: \code{"Bernoulli"}.
+#'
+#' @param inclusion_probability Numeric scalar. Prior inclusion probability
+#'   of each edge (used with the Bernoulli prior). Default: \code{0.5}.
+#'
+#' @param beta_bernoulli_alpha,beta_bernoulli_beta Double. Shape parameters
+#'   for the beta distribution in the Beta–Bernoulli and the Stochastic-Block
+#'   priors. Must be positive. Defaults: \code{beta_bernoulli_alpha = 1} and
+#'   \code{beta_bernoulli_beta = 1}.
+#'
+#' @param dirichlet_alpha Double. Concentration parameter of the Dirichlet
+#'   prior on block assignments (used with the Stochastic Block model).
+#'   Default: \code{1}.
+#'
+#' @param lambda Double. Rate of the zero-truncated Poisson prior on the
+#'   number of clusters in the Stochastic Block Model. Default: \code{1}.
+#'
+#' @param na_action Character. Specifies missing data handling. Either
+#'   \code{"listwise"} (drop rows with missing values) or \code{"impute"}
+#'   (perform single imputation during sampling). Default: \code{"listwise"}.
+#'
+#' @param display_progress Logical. Whether to show a progress bar during
+#'   sampling. Default: \code{TRUE}.
+#'
+#' @param update_method Character. Specifies how the MCMC sampler updates
+#'   the model parameters:
+#'   \describe{
+#'     \item{"adaptive-metropolis"}{Componentwise adaptive Metropolis–Hastings
+#'       with Robbins–Monro proposal adaptation.}
+#'     \item{"hamiltonian-mc"}{Hamiltonian Monte Carlo with fixed path length
+#'       (number of leapfrog steps set by \code{hmc_num_leapfrogs}).}
+#'     \item{"nuts"}{The No-U-Turn Sampler, an adaptive form of HMC with
+#'       dynamically chosen trajectory lengths.}
+#'   }
+#'   Default: \code{"nuts"}.
+#'
+#' @param target_accept Numeric between 0 and 1. Target acceptance rate for
+#'   the sampler. Defaults are set automatically if not supplied:
+#'   \code{0.44} for adaptive Metropolis, \code{0.65} for HMC,
+#'   and \code{0.60} for NUTS.
+#'
+#' @param hmc_num_leapfrogs Integer. Number of leapfrog steps for Hamiltonian
+#'   Monte Carlo. Must be positive. Default: \code{100}.
+#'
+#' @param nuts_max_depth Integer. Maximum tree depth in NUTS. Must be positive.
+#'   Default: \code{10}.
+#'
+#' @param learn_mass_matrix Logical. If \code{TRUE}, adapt a diagonal mass
+#'   matrix during warmup (HMC/NUTS only). If \code{FALSE}, use the identity
+#'   matrix. Default: \code{FALSE}.
+#'
+#' @param chains Integer. Number of parallel chains to run. Default: \code{4}.
+#'
+#' @param cores Integer. Number of CPU cores for parallel execution.
+#'   Default: \code{parallel::detectCores()}.
+#'
+#' @param seed Optional integer. Random seed for reproducibility. Must be a
+#'   single non-negative integer.
+#'
+#' @param interaction_scale,burnin,save,threshold_alpha,threshold_beta
+#'   `r lifecycle::badge("deprecated")`
+#'   Deprecated arguments as of **bgms 0.1.6.0**.
+#'   Use `pairwise_scale`, `warmup`, `main_alpha`, and `main_beta` instead.
+#'
+#' @return
+#' A list of class \code{"bgms"} with posterior summaries, posterior mean
+#' matrices, and access to raw MCMC draws. The object can be passed to
+#' \code{print()}, \code{summary()}, \code{coef()}, and
+#' \code{as_draws()} methods for inspection and analysis.
+#'
+#' Main components include:
 #' \itemize{
-#' \item \code{indicator}: A matrix with \code{p} rows and \code{p} columns,
-#' containing the posterior inclusion probabilities of individual edges.
-#' \item \code{interactions}: A matrix with \code{p} rows and \code{p} columns,
-#' containing model-averaged posterior means of the pairwise associations.
-#' \item \code{thresholds}: A matrix with \code{p} rows and \code{max(m)}
-#' columns, containing model-averaged category thresholds. In the case of
-#' ``blume-capel'' variables, the first entry is the parameter for the linear
-#' effect and the second entry is the parameter for the quadratic effect, which
-#' models the offset to the reference category.
+#'   \item \code{posterior_summary_main}: Data frame with posterior summaries
+#'     (mean, sd, MCSE, ESS, Rhat) for category threshold parameters.
+#'   \item \code{posterior_summary_pairwise}: Data frame with posterior
+#'     summaries for pairwise interaction parameters.
+#'   \item \code{posterior_summary_indicator}: Data frame with posterior
+#'     summaries for edge inclusion indicators (if \code{edge_selection = TRUE}).
+#'
+#'   \item \code{posterior_mean_main}: Matrix of posterior mean thresholds
+#'     (rows = variables, cols = categories or parameters).
+#'   \item \code{posterior_mean_pairwise}: Symmetric matrix of posterior mean
+#'     pairwise interaction strengths.
+#'   \item \code{posterior_mean_indicator}: Symmetric matrix of posterior mean
+#'     inclusion probabilities (if edge selection was enabled).
+#'
+#'   \item  Additional summaries returned when
+#'     \code{edge_prior = "Stochastic-Block"}. For more details about this prior
+#'     see \insertCite{SekulovskiEtAl_2025;textual}{bgms}.
+#'    \itemize{
+#'       \item \code{posterior_summary_pairwise_allocations}: Data frame with
+#'       posterior summaries (mean, sd, MCSE, ESS, Rhat) for the pairwise
+#'       cluster co-occurrence of the nodes. This serves to indicate
+#'       whether the estimated posterior allocations,co-clustering matrix
+#'       and posterior cluster probabilities (see blow) have converged.
+#'       \item \code{posterior_coclustering_matrix}: a symmetric matrix of
+#'       pairwise proportions of occurrence of every variable. This matrix
+#'       can be plotted to visually inspect the estimated number of clusters
+#'       and visually inspect nodes that tend to switch clusters.
+#'       \item \code{posterior_mean_allocations}: A vector with the posterior mean
+#'       of the cluster allocations of the nodes. This is calculated using the method
+#'       proposed in \insertCite{Dahl2009;textual}{bgms}.
+#'       \item \code{posterior_mode_allocations}: A vector with the posterior
+#'        mode of the cluster allocations of the nodes.
+#'       \item \code{posterior_num_blocks}: A data frame with the estimated
+#'       posterior inclusion probabilities for all the possible number of clusters.
+#'       }
+#'   \item \code{raw_samples}: A list of raw MCMC draws per chain:
+#'     \describe{
+#'       \item{\code{main}}{List of main effect samples.}
+#'       \item{\code{pairwise}}{List of pairwise effect samples.}
+#'       \item{\code{indicator}}{List of indicator samples
+#'         (if edge selection enabled).}
+#'       \item{\code{allocations}}{List of cluster allocations
+#'         (if SBM prior used).}
+#'       \item{\code{nchains}}{Number of chains.}
+#'       \item{\code{niter}}{Number of post–warmup iterations per chain.}
+#'       \item{\code{parameter_names}}{Named lists of parameter labels.}
+#'     }
+#'
+#'   \item \code{arguments}: A list of function call arguments and metadata
+#'     (e.g., number of variables, warmup, sampler settings, package version).
 #' }
 #'
-#' If \code{save = TRUE}, the result is a list of class ``bgms'' containing:
-#' \itemize{
-#' \item \code{indicator}: A matrix with \code{iter} rows and
-#' \code{p * (p - 1) / 2} columns, containing the edge inclusion indicators from
-#' every iteration of the Gibbs sampler.
-#' \item \code{interactions}: A matrix with \code{iter} rows and
-#' \code{p * (p - 1) / 2} columns, containing parameter states from every
-#' iteration of the Gibbs sampler for the pairwise associations.
-#' \item \code{thresholds}: A matrix with \code{iter} rows and
-#' \code{sum(m)} columns, containing parameter states from every iteration of
-#' the Gibbs sampler for the category thresholds.
-#' }
-#' Column averages of these matrices provide the model-averaged posterior means.
+#' The \code{summary()} method prints formatted posterior summaries,
+#' \code{coef()} extracts posterior mean matrices,
+#' and \code{as_draws()} converts the raw samples into a
+#' \code{posterior::draws_df} object for use with the \pkg{posterior} package.
 #'
-#' In addition to the analysis results, the bgm output lists some of the
-#' arguments of its call. This is useful for post-processing the results.
+#' NUTS diagnostics (tree depth, divergences, energy, E-BFMI) are included
+#' in \code{fit$nuts_diag} if \code{update_method = "nuts"}.
 #'
 #' @references
 #'   \insertAllCited{}
 #'
 #' @examples
 #' \donttest{
-#'  #Store user par() settings
-#'  op <- par(no.readonly = TRUE)
+#' # Run bgm on subset of the Wenchuan dataset
+#' fit = bgm(x = Wenchuan[, 1:5])
 #'
-#'  ##Analyse the Wenchuan dataset
+#' # Posterior inclusion probabilities
+#' summary(fit)$indicator
 #'
-#'  # Here, we use 1e4 iterations, for an actual analysis please use at least
-#'  # 1e5 iterations.
-#'  fit = bgm(x = Wenchuan)
-#'
-#'
-#'  #------------------------------------------------------------------------------|
-#'  # INCLUSION - EDGE WEIGHT PLOT
-#'  #------------------------------------------------------------------------------|
-#'
-#'  par(mar = c(6, 5, 1, 1))
-#'  plot(x = fit$interactions[lower.tri(fit$interactions)],
-#'       y = fit$indicator[lower.tri(fit$indicator)], ylim = c(0, 1),
-#'       xlab = "", ylab = "", axes = FALSE, pch = 21, bg = "gray", cex = 1.3)
-#'  abline(h = 0, lty = 2, col = "gray")
-#'  abline(h = 1, lty = 2, col = "gray")
-#'  abline(h = .5, lty = 2, col = "gray")
-#'  mtext("Posterior Mode Edge Weight", side = 1, line = 3, cex = 1.7)
-#'  mtext("Posterior Inclusion Probability", side = 2, line = 3, cex = 1.7)
-#'  axis(1)
-#'  axis(2, las = 1)
-#'
-#'
-#'  #------------------------------------------------------------------------------|
-#'  # EVIDENCE - EDGE WEIGHT PLOT
-#'  #------------------------------------------------------------------------------|
-#'
-#'  #For the default choice of the structure prior, the prior odds equal one:
-#'  prior.odds = 1
-#'  posterior.inclusion = fit$indicator[lower.tri(fit$indicator)]
-#'  posterior.odds = posterior.inclusion / (1 - posterior.inclusion)
-#'  log.bayesfactor = log(posterior.odds / prior.odds)
-#'  log.bayesfactor[log.bayesfactor > 5] = 5
-#'
-#'  par(mar = c(5, 5, 1, 1) + 0.1)
-#'  plot(fit$interactions[lower.tri(fit$interactions)], log.bayesfactor, pch = 21, bg = "#bfbfbf",
-#'       cex = 1.3, axes = FALSE, xlab = "", ylab = "", ylim = c(-5, 5.5),
-#'       xlim = c(-0.5, 1.5))
-#'  axis(1)
-#'  axis(2, las = 1)
-#'  abline(h = log(1/10), lwd = 2, col = "#bfbfbf")
-#'  abline(h = log(10), lwd = 2, col = "#bfbfbf")
-#'
-#'  text(x = 1, y = log(1 / 10), labels = "Evidence for Exclusion", pos = 1,
-#'       cex = 1.7)
-#'  text(x = 1, y = log(10), labels = "Evidence for Inclusion", pos = 3, cex = 1.7)
-#'  text(x = 1, y = 0, labels = "Absence of Evidence", cex = 1.7)
-#'  mtext("Log-Inclusion Bayes Factor", side = 2, line = 3, cex = 1.5, las = 0)
-#'  mtext("Posterior Mean Interactions ", side = 1, line = 3.7, cex = 1.5, las = 0)
-#'
-#'
-#'  #------------------------------------------------------------------------------|
-#'  # THE MEDIAN PROBABILITY NETWORK
-#'  #------------------------------------------------------------------------------|
-#'
-#'  tmp = fit$interactions[lower.tri(fit$interactions)]
-#'  tmp[posterior.inclusion < 0.5] = 0
-#'
-#'  median.prob.model = matrix(0, nrow = ncol(Wenchuan), ncol = ncol(Wenchuan))
-#'  median.prob.model[lower.tri(median.prob.model)] = tmp
-#'  median.prob.model = median.prob.model + t(median.prob.model)
-#'
-#'  rownames(median.prob.model) = colnames(Wenchuan)
-#'  colnames(median.prob.model) = colnames(Wenchuan)
-#'
-#'  library(qgraph)
-#'  qgraph(median.prob.model,
-#'         theme = "TeamFortress",
-#'         maximum = .5,
-#'         fade = FALSE,
-#'         color = c("#f0ae0e"), vsize = 10, repulsion = .9,
-#'         label.cex = 1.1, label.scale = "FALSE",
-#'         labels = colnames(Wenchuan))
-#'
-#'  #Restore user par() settings
-#'  par(op)
+#' # Posterior pairwise effects
+#' summary(fit)$pairwise
 #' }
-#' @importFrom utils packageVersion
+#'
 #' @export
-bgm = function(x,
-               variable_type = "ordinal",
-               reference_category,
-               iter = 1e4,
-               burnin = 5e2,
-               interaction_scale = 2.5,
-               threshold_alpha = 0.5,
-               threshold_beta = 0.5,
-               edge_selection = TRUE,
-               edge_prior = c("Bernoulli", "Beta-Bernoulli", "Stochastic-Block"),
-               inclusion_probability = 0.5,
-               beta_bernoulli_alpha = 1,
-               beta_bernoulli_beta = 1,
-               dirichlet_alpha = 1,
-               na.action = c("listwise", "impute"),
-               save = FALSE,
-               display_progress = TRUE) {
+bgm = function(
+    x,
+    variable_type = "ordinal",
+    baseline_category,
+    iter = 1e3,
+    warmup = 1e3,
+    pairwise_scale = 2.5,
+    main_alpha = 0.5,
+    main_beta = 0.5,
+    edge_selection = TRUE,
+    edge_prior = c("Bernoulli", "Beta-Bernoulli", "Stochastic-Block"),
+    inclusion_probability = 0.5,
+    beta_bernoulli_alpha = 1,
+    beta_bernoulli_beta = 1,
+    dirichlet_alpha = 1,
+    lambda = 1,
+    na_action = c("listwise", "impute"),
+    update_method = c("nuts", "adaptive-metropolis", "hamiltonian-mc"),
+    target_accept,
+    hmc_num_leapfrogs = 100,
+    nuts_max_depth = 10,
+    learn_mass_matrix = FALSE,
+    chains = 4,
+    cores = parallel::detectCores(),
+    display_progress = c("per-chain", "total", "none"),
+    seed = NULL,
+    interaction_scale,
+    burnin,
+    save,
+    threshold_alpha,
+    threshold_beta
+) {
+  if (hasArg(interaction_scale)) {
+    lifecycle::deprecate_warn("0.1.6.0", "bgm(interaction_scale =)", "bgm(pairwise_scale =)")
+    if (!hasArg(pairwise_scale)) {
+      pairwise_scale = interaction_scale
+    }
+  }
+
+  if (hasArg(burnin)) {
+    lifecycle::deprecate_warn("0.1.6.0", "bgm(burnin =)", "bgm(warmup =)")
+    if (!hasArg(warmup)) {
+      warmup = burnin
+    }
+  }
+
+  if (hasArg(save)) {
+    lifecycle::deprecate_warn("0.1.6.0", "bgm(save =)")
+  }
+
+  if (hasArg(threshold_alpha) || hasArg(threshold_beta)) {
+    lifecycle::deprecate_warn("0.1.6.0",
+                              "bgm(threshold_alpha =, threshold_beta =)",
+                              "bgm(main_alpha =, main_beta =)"
+    )
+    if (!hasArg(main_alpha)) main_alpha = threshold_alpha
+    if (!hasArg(main_beta)) main_beta = threshold_beta
+  }
+
+  # Check update method
+  update_method_input = update_method
+  update_method = match.arg(update_method)
+
+  # Check target acceptance rate
+  if(hasArg(target_accept)) {
+    target_accept = min(target_accept, 1 - sqrt(.Machine$double.eps))
+    target_accept = max(target_accept, 0 + sqrt(.Machine$double.eps))
+  } else {
+    if(update_method == "adaptive-metropolis") {
+      target_accept = 0.44
+    } else if(update_method == "hamiltonian-mc") {
+      target_accept = 0.65
+    } else if(update_method == "nuts") {
+      target_accept = 0.60
+    }
+  }
 
   #Check data input ------------------------------------------------------------
   if(!inherits(x, what = "matrix") && !inherits(x, what = "data.frame"))
@@ -294,16 +438,17 @@ bgm = function(x,
   #Check model input -----------------------------------------------------------
   model = check_model(x = x,
                       variable_type = variable_type,
-                      reference_category = reference_category,
-                      interaction_scale = interaction_scale,
-                      threshold_alpha = threshold_alpha,
-                      threshold_beta = threshold_beta,
+                      baseline_category = baseline_category,
+                      pairwise_scale = pairwise_scale,
+                      main_alpha = main_alpha,
+                      main_beta = main_beta,
                       edge_selection = edge_selection,
                       edge_prior = edge_prior,
                       inclusion_probability = inclusion_probability,
                       beta_bernoulli_alpha = beta_bernoulli_alpha,
                       beta_bernoulli_beta = beta_bernoulli_beta,
-                      dirichlet_alpha = dirichlet_alpha)
+                      dirichlet_alpha = dirichlet_alpha,
+                      lambda = lambda)
 
   # ----------------------------------------------------------------------------
   # The vector variable_type is now coded as boolean.
@@ -312,261 +457,189 @@ bgm = function(x,
   variable_bool = model$variable_bool
   # ----------------------------------------------------------------------------
 
-  reference_category = model$reference_category
+  baseline_category = model$baseline_category
   edge_selection = model$edge_selection
   edge_prior = model$edge_prior
-  theta = model$theta
+  inclusion_probability = model$inclusion_probability
 
   #Check Gibbs input -----------------------------------------------------------
-  if(abs(iter - round(iter)) > .Machine$double.eps)
-    stop("Parameter ``iter'' needs to be a positive integer.")
-  if(iter <= 0)
-    stop("Parameter ``iter'' needs to be a positive integer.")
-  if(abs(burnin - round(burnin)) > .Machine$double.eps || burnin < 0)
-    stop("Parameter ``burnin'' needs to be a non-negative integer.")
-  if(burnin <= 0)
-    stop("Parameter ``burnin'' needs to be a positive integer.")
+  check_positive_integer(iter, "iter")
+  check_non_negative_integer(warmup, "warmup")
+  if(warmup < 1e3)
+    warning("The warmup parameter is set to a low value. This may lead to unreliable results. Reset to a minimum of 1000 iterations.")
+  warmup = max(warmup, 1e3) # Set minimum warmup to 1000 iterations
 
-  #Check na.action -------------------------------------------------------------
-  na.action_input = na.action
-  na.action = try(match.arg(na.action), silent = TRUE)
-  if(inherits(na.action, what = "try-error"))
-    stop(paste0("The na.action argument should equal listwise or impute, not ",
-                na.action_input,
-                "."))
-  #Check save ------------------------------------------------------------------
-  save_input = save
-  save = as.logical(save)
-  if(is.na(save))
-    stop(paste0("The save argument should equal TRUE or FALSE, not ",
-                save_input,
+  check_positive_integer(hmc_num_leapfrogs, "hmc_num_leapfrogs")
+  hmc_num_leapfrogs = max(hmc_num_leapfrogs, 1) # Set minimum hmc_num_leapfrogs to 1
+
+  check_positive_integer(nuts_max_depth, "nuts_max_depth")
+  nuts_max_depth = max(nuts_max_depth, 1) # Set minimum nuts_max_depth to 1
+
+  #Check na_action -------------------------------------------------------------
+  na_action_input = na_action
+  na_action = try(match.arg(na_action), silent = TRUE)
+  if(inherits(na_action, what = "try-error"))
+    stop(paste0("The na_action argument should equal listwise or impute, not ",
+                na_action_input,
                 "."))
 
   #Check display_progress ------------------------------------------------------
-  display_progress = as.logical(display_progress)
-  if(is.na(display_progress))
-    stop("The display_progress argument should equal TRUE or FALSE.")
+  progress_type = progress_type_from_display_progress(display_progress)
 
   #Format the data input -------------------------------------------------------
   data = reformat_data(x = x,
-                       na.action = na.action,
+                       na_action = na_action,
                        variable_bool = variable_bool,
-                       reference_category = reference_category)
+                       baseline_category = baseline_category)
   x = data$x
-  no_categories = data$no_categories
+  num_categories = data$num_categories
   missing_index = data$missing_index
   na_impute = data$na_impute
-  reference_category = data$reference_category
+  baseline_category = data$baseline_category
 
-  no_variables = ncol(x)
-  no_interactions = no_variables * (no_variables - 1) / 2
-  no_thresholds = sum(no_categories)
-
-  #Specify the variance of the (normal) proposal distribution ------------------
-  proposal_sd = matrix(1,
-                       nrow = no_variables,
-                       ncol = no_variables)
-  proposal_sd_blumecapel = matrix(1,
-                                  nrow = no_variables,
-                                  ncol = 2)
+  num_variables = ncol(x)
+  num_interactions = num_variables * (num_variables - 1) / 2
+  num_thresholds = sum(num_categories)
 
   # Starting value of model matrix ---------------------------------------------
   indicator = matrix(1,
-                 nrow = no_variables,
-                 ncol = no_variables)
+                 nrow = num_variables,
+                 ncol = num_variables)
 
 
   #Starting values of interactions and thresholds (posterior mode) -------------
-  interactions = matrix(0, nrow = no_variables, ncol = no_variables)
-  thresholds = matrix(0, nrow = no_variables, ncol = max(no_categories))
+  interactions = matrix(0, nrow = num_variables, ncol = num_variables)
+  thresholds = matrix(0, nrow = num_variables, ncol = max(num_categories))
 
   #Precompute the number of observations per category for each variable --------
-  n_cat_obs = matrix(0,
-                     nrow = max(no_categories) + 1,
-                     ncol = no_variables)
-  for(variable in 1:no_variables) {
-    for(category in 0:no_categories[variable]) {
-      n_cat_obs[category + 1, variable] = sum(x[, variable] == category)
+  counts_per_category = matrix(0,
+                     nrow = max(num_categories) + 1,
+                     ncol = num_variables)
+  for(variable in 1:num_variables) {
+    for(category in 0:num_categories[variable]) {
+      counts_per_category[category + 1, variable] = sum(x[, variable] == category)
     }
   }
 
   #Precompute the sufficient statistics for the two Blume-Capel parameters -----
-  sufficient_blume_capel = matrix(0, nrow = 2, ncol = no_variables)
+  blume_capel_stats = matrix(0, nrow = 2, ncol = num_variables)
   if(any(!variable_bool)) {
     # Ordinal (variable_bool == TRUE) or Blume-Capel (variable_bool == FALSE)
     bc_vars = which(!variable_bool)
     for(i in bc_vars) {
-      sufficient_blume_capel[1, i] = sum(x[, i])
-      sufficient_blume_capel[2, i] = sum((x[, i] - reference_category[i]) ^ 2)
+      blume_capel_stats[1, i] = sum(x[, i])
+      blume_capel_stats[2, i] = sum((x[, i] - baseline_category[i]) ^ 2)
     }
   }
+  pairwise_stats = t(x) %*% x
 
-  # Index vector used to sample interactions in a random order -----------------
-  Index = matrix(0,
-                 nrow = no_variables * (no_variables - 1) / 2,
+  # Index matrix used in the c++ functions  ------------------------------------
+  interaction_index_matrix = matrix(0,
+                 nrow = num_variables * (num_variables - 1) / 2,
                  ncol = 3)
   cntr = 0
-  for(variable1 in 1:(no_variables - 1)) {
-    for(variable2 in (variable1 + 1):no_variables) {
+  for(variable1 in 1:(num_variables - 1)) {
+    for(variable2 in (variable1 + 1):num_variables) {
       cntr =  cntr + 1
-      Index[cntr, 1] = cntr
-      Index[cntr, 2] = variable1
-      Index[cntr, 3] = variable2
+      interaction_index_matrix[cntr, 1] = cntr - 1
+      interaction_index_matrix[cntr, 2] = variable1 - 1
+      interaction_index_matrix[cntr, 3] = variable2 - 1
     }
   }
 
-  #The Metropolis within Gibbs sampler -----------------------------------------
-  out = gibbs_sampler(observations = x,
-                      indicator = indicator,
-                      interactions = interactions,
-                      thresholds = thresholds,
-                      no_categories  = no_categories,
-                      interaction_scale = interaction_scale,
-                      proposal_sd = proposal_sd,
-                      proposal_sd_blumecapel = proposal_sd_blumecapel,
-                      edge_prior = edge_prior,
-                      theta = theta,
-                      beta_bernoulli_alpha = beta_bernoulli_alpha,
-                      beta_bernoulli_beta = beta_bernoulli_beta,
-                      dirichlet_alpha = dirichlet_alpha,
-                      Index = Index,
-                      iter = iter,
-                      burnin = burnin,
-                      n_cat_obs = n_cat_obs,
-                      sufficient_blume_capel = sufficient_blume_capel,
-                      threshold_alpha = threshold_alpha,
-                      threshold_beta = threshold_beta,
-                      na_impute = na_impute,
-                      missing_index = missing_index,
-                      variable_bool = variable_bool,
-                      reference_category = reference_category,
-                      save = save,
-                      display_progress = display_progress,
-                      edge_selection = edge_selection)
+  pairwise_effect_indices = matrix(NA, nrow = num_variables, ncol = num_variables)
+  tel = 0
+  for (v1 in seq_len(num_variables - 1)) {
+    for (v2 in seq((v1 + 1), num_variables)) {
+      pairwise_effect_indices[v1, v2] = tel
+      pairwise_effect_indices[v2, v1] = tel
+      tel = tel + 1  # C++ starts at zero
+    }
+  }
 
+  #Setting the seed
+  if (missing(seed) || is.null(seed)) {
+    # Draw a random seed if none provided
+    seed = sample.int(.Machine$integer.max, 1)
+  }
 
-  #Preparing the output --------------------------------------------------------
-  arguments = list(
-    no_variables = no_variables,
-    no_cases = nrow(x),
-    na_impute = na_impute,
-    variable_type = variable_type,
-    iter = iter,
-    burnin = burnin,
-    interaction_scale = interaction_scale,
-    threshold_alpha = threshold_alpha,
-    threshold_beta = threshold_beta,
-    edge_selection = edge_selection,
-    edge_prior = edge_prior,
-    inclusion_probability = theta,
-    beta_bernoulli_alpha = beta_bernoulli_alpha ,
-    beta_bernoulli_beta =  beta_bernoulli_beta,
-    dirichlet_alpha = dirichlet_alpha,
-    na.action = na.action,
-    save = save,
-    version = packageVersion("bgms")
+  if (!is.numeric(seed) || length(seed) != 1 || is.na(seed) || seed < 0) {
+    stop("Argument 'seed' must be a single non-negative integer.")
+  }
+
+  seed <- as.integer(seed)
+
+  out = run_bgm_parallel(
+    observations = x, num_categories = num_categories,
+    pairwise_scale = pairwise_scale, edge_prior = edge_prior,
+    inclusion_probability = inclusion_probability,
+    beta_bernoulli_alpha = beta_bernoulli_alpha,
+    beta_bernoulli_beta = beta_bernoulli_beta,
+    dirichlet_alpha = dirichlet_alpha, lambda = lambda,
+    interaction_index_matrix = interaction_index_matrix, iter = iter,
+    warmup = warmup, counts_per_category = counts_per_category,
+    blume_capel_stats = blume_capel_stats,
+    main_alpha = main_alpha, main_beta = main_beta,
+    na_impute = na_impute, missing_index = missing_index,
+    is_ordinal_variable = variable_bool,
+    baseline_category = baseline_category, edge_selection = edge_selection,
+    update_method = update_method,
+    pairwise_effect_indices = pairwise_effect_indices,
+    target_accept = target_accept, pairwise_stats = pairwise_stats,
+    hmc_num_leapfrogs = hmc_num_leapfrogs, nuts_max_depth = nuts_max_depth,
+    learn_mass_matrix = learn_mass_matrix, num_chains = chains,
+    nThreads = cores, seed = seed, progress_type = progress_type
   )
 
-  if(save == FALSE) {
-    if(edge_selection == TRUE) {
-      indicator = out$indicator
-    }
-    interactions = out$interactions
-    tresholds = out$thresholds
+  # Main output handler in the wrapper function
+  output = prepare_output_bgm (
+    out = out, x = x, num_categories = num_categories, iter = iter,
+    data_columnnames = if (is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
+    is_ordinal_variable = variable_bool,
+    warmup = warmup, pairwise_scale = pairwise_scale,
+    main_alpha = main_alpha, main_beta = main_beta,
+    na_action = na_action, na_impute = na_impute,
+    edge_selection = edge_selection, edge_prior = edge_prior, inclusion_probability = inclusion_probability,
+    beta_bernoulli_alpha = beta_bernoulli_alpha,
+    beta_bernoulli_beta = beta_bernoulli_beta,
+    dirichlet_alpha = dirichlet_alpha, lambda = lambda,
+    variable_type = variable_type,
+    update_method = update_method,
+    target_accept = target_accept,
+    hmc_num_leapfrogs = hmc_num_leapfrogs,
+    nuts_max_depth = nuts_max_depth,
+    learn_mass_matrix = learn_mass_matrix,
+    num_chains = chains
+  )
 
-    if(is.null(colnames(x))){
-      data_columnnames = paste0("variable ", 1:no_variables)
-      colnames(interactions) = data_columnnames
-      rownames(interactions) = data_columnnames
-      if(edge_selection == TRUE) {
-        colnames(indicator) = data_columnnames
-        rownames(indicator) = data_columnnames
-      }
-      rownames(thresholds) = data_columnnames
-    } else {
-      data_columnnames <- colnames(x)
-      colnames(interactions) = data_columnnames
-      rownames(interactions) = data_columnnames
-      if(edge_selection == TRUE) {
-        colnames(indicator) = data_columnnames
-        rownames(indicator) = data_columnnames
-      }
-      rownames(thresholds) = data_columnnames
-    }
-
-    if(any(variable_bool)) {
-      colnames(thresholds) = paste0("category ", 1:max(no_categories))
-    } else {
-      thresholds = thresholds[, 1:2]
-      colnames(thresholds) = c("linear", "quadratic")
-    }
-
-    arguments$data_columnnames = data_columnnames
-
-    if(edge_selection == TRUE) {
-      output = list(indicator = indicator,
-                    interactions = interactions,
-                    thresholds = thresholds,
-                    arguments = arguments)
-    } else {
-      output = list(interactions = interactions,
-                    thresholds = thresholds,
-                    arguments = arguments)
-    }
-
-    class(output) = "bgms"
-    return(output)
-  } else {
-    if(edge_selection == TRUE) {
-      indicator = out$indicator
-    }
-    interactions = out$interactions
-    thresholds = out$thresholds
-
-    if(is.null(colnames(x))){
-      data_columnnames <- 1:ncol(x)
-    } else {
-      data_columnnames <- colnames(x)
-    }
-    p <- ncol(x)
-    names_bycol <- matrix(rep(data_columnnames, each = p), ncol = p)
-    names_byrow <- matrix(rep(data_columnnames, each = p), ncol = p, byrow = T)
-    names_comb <- matrix(paste0(names_byrow, "-", names_bycol), ncol = p)
-    names_vec <- names_comb[lower.tri(names_comb)]
-
-    if(edge_selection == TRUE) {
-      colnames(indicator) = names_vec
-    }
-    colnames(interactions) = names_vec
-    names = character(length = sum(no_categories))
-    cntr = 0
-    for(variable in 1:no_variables) {
-      for(category in 1:no_categories[variable]) {
-        cntr = cntr + 1
-        names[cntr] = paste0("threshold(",variable, ", ",category,")")
-      }
-    }
-    colnames(thresholds) = names
-
-    if(edge_selection == TRUE) {
-      dimnames(indicator) = list(Iter. = 1:iter, colnames(indicator))
-    }
-    dimnames(interactions) = list(Iter. = 1:iter, colnames(interactions))
-    dimnames(thresholds) = list(Iter. = 1:iter, colnames(thresholds))
-
-    arguments$data_columnnames = data_columnnames
-
-    if(edge_selection == TRUE) {
-      output = list(indicator = indicator,
-                    interactions = interactions,
-                    thresholds = thresholds,
-                    arguments = arguments)
-    } else {
-      output = list(interactions = interactions,
-                    thresholds = thresholds,
-                    arguments = arguments)
-    }
-    class(output) = "bgms"
-    return(output)
+  if (update_method == "nuts") {
+    nuts_diag = summarize_nuts_diagnostics(out, nuts_max_depth = nuts_max_depth)
+    output$nuts_diag = nuts_diag
   }
+
+  # -------------------------------------------------------------------
+  # TODO: REMOVE after easybgm >= 0.2.2 is on CRAN
+  # Compatibility shim for easybgm <= 0.2.1
+  # -------------------------------------------------------------------
+  if ("easybgm" %in% loadedNamespaces()) {
+    ebgm_version <- utils::packageVersion("easybgm")
+    if (ebgm_version <= "0.2.1") {
+      warning("bgms is running in compatibility mode for easybgm (<= 0.2.1). ",
+              "This will be removed once easybgm >= 0.2.2 is on CRAN.")
+
+      # Add legacy variables to output
+      output$arguments$save <- TRUE
+      if (edge_selection) {
+        output$indicator <- extract_indicators(output)
+      }
+      output$interactions <- extract_pairwise_interactions(output)
+      output$thresholds   <- extract_category_thresholds(output)
+    }
+  }
+
+  userInterrupt = any(vapply(out, FUN = `[[`, FUN.VALUE = logical(1L), "userInterrupt"))
+  if (userInterrupt)
+    warning("Stopped sampling after user interrupt, results are likely uninterpretable.")
+
+  return(output)
 }

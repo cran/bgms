@@ -7,57 +7,69 @@
 \title{bgms: Bayesian Analysis of Networks of Binary and/or Ordinal Variables}
 \description{
 The \code{R} package \strong{bgms} provides tools for Bayesian analysis of
-graphical models describing networks of variables. The package uses Markov
-chain Monte Carlo methods combined with a pseudolikelihood approach to
-estimate the posterior distribution of model parameters.
+the ordinal Markov random field (MRF), a graphical model describing networks
+of binary and/or ordinal variables \insertCite{MarsmanVandenBerghHaslbeck_2024}{bgms}.
+The likelihood is approximated via a pseudolikelihood, and Markov chain Monte
+Carlo (MCMC) methods are used to sample from the corresponding pseudoposterior
+distribution of model parameters.
 
-Gibbs variable selection \insertCite{GeorgeMcCulloch_1993}{bgms} is used to
-model the underlying network structure of the graphical model. By imposing a
-discrete spike and slab prior on the pairwise interactions, it is possible to
-shrink the interactions to exactly zero. The Gibbs sampler embeds a
-Metropolis approach for mixtures of mutually singular distributions
-\insertCite{GottardoRaftery_2008}{bgms} to account for the discontinuity at
-zero. The goal is to provide these tools for Markov Random Field (MRF) models
-for a wide range of variable types in the \strong{bgms} package, and
-it currently provides them for analyzing networks of binary and/or ordinal
-variables \insertCite{MarsmanHaslbeck_2023_OrdinalMRF}{bgms}.
+The main entry points are:
+\itemize{
+  \item \strong{bgm}: estimation in a one-sample design.
+  \item \strong{bgmCompare}: estimation and group comparison in an
+        independent-sample design.
+}
 
-While the goal is to provide the above tools for Markov Random Field (MRF)
-models for a wide range of variable types in the \strong{bgms} package, it
-currently provides tools for analyzing networks of binary and/or ordinal
-variables \insertCite{MarsmanHaslbeck_2023_OrdinalMRF}{bgms}.
+Both functions support Bayesian effect selection with spike-and-slab priors.
+\itemize{
+  \item In one-sample designs, \code{bgm} models the presence or absence of
+  edges between variables. Posterior inclusion probabilities quantify the
+  plausibility of each edge and can be converted into Bayes factors for
+  conditional independence tests.
 
-MRFs are a special class of graphical models whose graph structure reflects
-the conditional associations between their variables, making them useful for
-testing for conditional independence or dependence. For example, the
-inclusion Bayes factor tests for conditional independence or dependence of a
-pair of variables in the network by comparing the predictive adequacy of
-models that include the edge between these variables and models that exclude
-the edge. \insertCite{HuthEtAl_2023_intro,SekulovskiEtAl_2023}{bgms}.
+  \item \code{bgm} can also model communities (clusters) of variables. The
+  posterior distribution of the number of clusters provides evidence for or
+  against clustering \insertCite{SekulovskiEtAl_2025}{bgms}.
 
-The \strong{bgms} package offers several tools for analyzing the structure of
-the MRF:
+  \item In independent-sample designs, \code{bgmCompare} estimates group
+  differences in edge weights and category thresholds. Posterior inclusion
+  probabilities quantify the evidence for differences and can be converted
+  into Bayes factors for parameter equivalence tests
+  \insertCite{MarsmanWaldorpSekulovskiHaslbeck_2024}{bgms}.
+}
+}
+\section{Tools}{
 
+The package also provides:
 \enumerate{
- \item Simulate response data from the MRF using the Gibbs sampler.
- \itemize{
-   \item Simulate \code{\link{mrfSampler}}.
- }
- \item Estimate the posterior distribution of the MRF's parameters and
- possibly its network structure using Gibbs variable selection.
- \itemize{
- \item Bayesian estimation or Bayesian edge selection with \code{\link{bgm}}.
- }
+  \item Simulation of response data from MRFs with a Gibbs sampler
+        (\code{\link{mrfSampler}}).
+  \item Posterior estimation and edge selection in one-sample designs
+        (\code{\link{bgm}}).
+  \item Posterior estimation and group-difference selection in
+        independent-sample designs (\code{\link{bgmCompare}}).
 }
 }
+
+\section{Vignettes}{
+
+For tutorials and worked examples, see:
+\itemize{
+  \item \code{vignette("intro", package = "bgms")} — Getting started.
+  \item \code{vignette("comparison", package = "bgms")} — Model comparison.
+  \item \code{vignette("diagnostics", package = "bgms")} — Diagnostics and
+        spike-and-slab summaries.
+}
+}
+
 \references{
 \insertAllCited{}
 }
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://maartenmarsman.github.io/bgms/}
-  \item Report bugs at \url{https://github.com/MaartenMarsman/bgms/issues}
+  \item \url{https://Bayesian-Graphical-Modelling-Lab.github.io/bgms/}
+  \item Report bugs at \url{https://github.com/Bayesian-Graphical-Modelling-Lab/bgms/issues}
 }
 
 }
@@ -66,6 +78,7 @@ Useful links:
 
 Other contributors:
 \itemize{
+  \item Giuseppe Arena (\href{https://orcid.org/0000-0001-5204-3326}{ORCID}) [contributor]
   \item Karoline Huth (\href{https://orcid.org/0000-0002-0662-1591}{ORCID}) [contributor]
   \item Nikola Sekulovski (\href{https://orcid.org/0000-0001-7032-1684}{ORCID}) [contributor]
   \item Don van den Bergh (\href{https://orcid.org/0000-0002-9838-7308}{ORCID}) [contributor]
