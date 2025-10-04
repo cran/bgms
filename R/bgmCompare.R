@@ -147,9 +147,8 @@
 #'   \item \code{arguments}: list of function call arguments and metadata.
 #' }
 #'
-#' The \code{summary()} method prints formatted summaries,
-#' \code{coef()} extracts posterior means, and \code{as_draws()} converts
-#' raw samples to a \pkg{posterior} \code{draws_df}.
+#' The \code{summary()} method prints formatted summaries, and
+#' \code{coef()} extracts posterior means.
 #'
 #' NUTS diagnostics (tree depth, divergences, energy, E-BFMI) are included
 #' in \code{fit$nuts_diag} if \code{update_method = "nuts"}.
@@ -515,6 +514,45 @@ bgmCompare = function(
     progress_type = progress_type
   )
 
+  userInterrupt = any(vapply(out, FUN = `[[`, FUN.VALUE = logical(1L), "userInterrupt"))
+  if (userInterrupt) {
+    warning("Stopped sampling after user interrupt, results are likely uninterpretable.")
+    output <- tryCatch(
+      prepare_output_bgmCompare(
+        out = out,
+        observations = observations,
+        num_categories = num_categories,
+        is_ordinal_variable = ordinal_variable,
+        num_groups = num_groups,
+        iter = iter,
+        warmup = warmup,
+        main_effect_indices = main_effect_indices,
+        pairwise_effect_indices = pairwise_effect_indices,
+        data_columnnames = if (is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
+        difference_selection = difference_selection,
+        difference_prior = difference_prior,
+        difference_selection_alpha = beta_bernoulli_alpha,
+        difference_selection_beta = beta_bernoulli_beta,
+        pairwise_scale = pairwise_scale,
+        difference_scale = difference_scale,
+        update_method = update_method,
+        target_accept = target_accept,
+        nuts_max_depth = nuts_max_depth,
+        hmc_num_leapfrogs = hmc_num_leapfrogs,
+        learn_mass_matrix = learn_mass_matrix,
+        num_chains = chains,
+        projection = projection
+      ),
+      error = function(e) {
+        list(partial = out, error = conditionMessage(e))
+      },
+      warning = function(w) {
+        list(partial = out, warning = conditionMessage(w))
+      }
+    )
+    return(output)
+  }
+
   # Main output handler in the wrapper function
   output = prepare_output_bgmCompare(
     out = out,
@@ -545,10 +583,6 @@ bgmCompare = function(
     nuts_diag = summarize_nuts_diagnostics(out, nuts_max_depth = nuts_max_depth)
     output$nuts_diag = nuts_diag
   }
-
-  userInterrupt = any(vapply(out, FUN = `[[`, FUN.VALUE = logical(1L), "userInterrupt"))
-  if (userInterrupt)
-    warning("Stopped sampling after user interrupt, results are likely uninterpretable.")
 
   return(output)
 }

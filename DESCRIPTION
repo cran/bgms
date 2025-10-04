@@ -1,8 +1,8 @@
 Package: bgms
 Type: Package
 Title: Bayesian Analysis of Networks of Binary and/or Ordinal Variables
-Version: 0.1.6.0
-Date: 2025-09-26
+Version: 0.1.6.1
+Date: 2025-10-03
 Authors@R: c(
     person("Maarten", "Marsman", , "m.marsman@uva.nl", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0001-5309-7502")),
@@ -37,7 +37,7 @@ VignetteBuilder: knitr
 Config/testthat/edition: 3
 Config/Needs/website: tidyverse/tidytemplate
 NeedsCompilation: yes
-Packaged: 2025-09-27 18:24:39 UTC; maartenmarsman
+Packaged: 2025-10-03 12:54:27 UTC; maartenmarsman
 Author: Maarten Marsman [aut, cre] (ORCID:
     <https://orcid.org/0000-0001-5309-7502>),
   Giuseppe Arena [ctb] (ORCID: <https://orcid.org/0000-0001-5204-3326>),
@@ -47,4 +47,4 @@ Author: Maarten Marsman [aut, cre] (ORCID:
   Don van den Bergh [ctb] (ORCID:
     <https://orcid.org/0000-0002-9838-7308>)
 Repository: CRAN
-Date/Publication: 2025-09-27 19:10:02 UTC
+Date/Publication: 2025-10-04 09:20:02 UTC

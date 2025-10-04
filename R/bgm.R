@@ -267,8 +267,7 @@
 #' @return
 #' A list of class \code{"bgms"} with posterior summaries, posterior mean
 #' matrices, and access to raw MCMC draws. The object can be passed to
-#' \code{print()}, \code{summary()}, \code{coef()}, and
-#' \code{as_draws()} methods for inspection and analysis.
+#' \code{print()}, \code{summary()}, and \code{coef()}.
 #'
 #' Main components include:
 #' \itemize{
@@ -324,10 +323,8 @@
 #'     (e.g., number of variables, warmup, sampler settings, package version).
 #' }
 #'
-#' The \code{summary()} method prints formatted posterior summaries,
-#' \code{coef()} extracts posterior mean matrices,
-#' and \code{as_draws()} converts the raw samples into a
-#' \code{posterior::draws_df} object for use with the \pkg{posterior} package.
+#' The \code{summary()} method prints formatted posterior summaries, and
+#' \code{coef()} extracts posterior mean matrices.
 #'
 #' NUTS diagnostics (tree depth, divergences, energy, E-BFMI) are included
 #' in \code{fit$nuts_diag} if \code{update_method = "nuts"}.
@@ -591,6 +588,41 @@ bgm = function(
     nThreads = cores, seed = seed, progress_type = progress_type
   )
 
+
+  userInterrupt = any(vapply(out, FUN = `[[`, FUN.VALUE = logical(1L), "userInterrupt"))
+  if (userInterrupt) {
+    warning("Stopped sampling after user interrupt, results are likely uninterpretable.")
+    # Try to prepare output, but catch any errors
+    output <- tryCatch(
+      prepare_output_bgm(
+        out = out, x = x, num_categories = num_categories, iter = iter,
+        data_columnnames = if (is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
+        is_ordinal_variable = variable_bool,
+        warmup = warmup, pairwise_scale = pairwise_scale,
+        main_alpha = main_alpha, main_beta = main_beta,
+        na_action = na_action, na_impute = na_impute,
+        edge_selection = edge_selection, edge_prior = edge_prior, inclusion_probability = inclusion_probability,
+        beta_bernoulli_alpha = beta_bernoulli_alpha, beta_bernoulli_beta = beta_bernoulli_beta,
+        dirichlet_alpha = dirichlet_alpha, lambda = lambda,
+        variable_type = variable_type,
+        update_method = update_method,
+        target_accept = target_accept,
+        hmc_num_leapfrogs = hmc_num_leapfrogs,
+        nuts_max_depth = nuts_max_depth,
+        learn_mass_matrix = learn_mass_matrix,
+        num_chains = chains
+      ),
+      error = function(e) {
+        list(partial = out, error = conditionMessage(e))
+      },
+      warning = function(w) {
+        # still salvage what we can
+        list(partial = out, warning = conditionMessage(w))
+      }
+    )
+    return(output)
+  }
+
   # Main output handler in the wrapper function
   output = prepare_output_bgm (
     out = out, x = x, num_categories = num_categories, iter = iter,
@@ -636,10 +668,6 @@ bgm = function(
       output$thresholds   <- extract_category_thresholds(output)
     }
   }
-
-  userInterrupt = any(vapply(out, FUN = `[[`, FUN.VALUE = logical(1L), "userInterrupt"))
-  if (userInterrupt)
-    warning("Stopped sampling after user interrupt, results are likely uninterpretable.")
 
   return(output)
 }

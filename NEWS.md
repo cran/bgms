@@ -1,3 +1,17 @@
+# bgms 0.1.6.1
+
+## Other changes
+
+* added extractor function for joint SBM output
+* cleaned up documentation, and c++ files
+* changed length of warmup phase I in warmup scheduler HMC / NUTS (15% → 7.5%)
+
+## Bug fixes
+
+* Fixed a problem with warmup scheduling for adaptive-metropolis in bgmCompare()
+* Fixed stability problems with parallel sampling for bgm()
+* Fixed spurious output errors printing to console after user interrupt. 
+
 # bgms 0.1.6.0
 
 ## New features
