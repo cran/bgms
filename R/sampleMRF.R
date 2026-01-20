@@ -13,7 +13,7 @@
 #' in specifying their model.
 #'
 #' The Blume-Capel option is specifically designed for ordinal variables that
-#' have a special type of reference_category category, such as the neutral
+#' have a special type of baseline_category category, such as the neutral
 #' category in a Likert scale. The Blume-Capel model specifies the following
 #' quadratic model for the threshold parameters:
 #' \deqn{\mu_{\text{c}} = \alpha \times \text{c} + \beta \times (\text{c} - \text{r})^2,}{{\mu_{\text{c}} = \alpha \times \text{c} + \beta \times (\text{c} - \text{r})^2,}}
@@ -23,8 +23,8 @@
 #' \eqn{\alpha > 0}{\alpha > 0} and decreasing threshold values if
 #' \eqn{\alpha <0}{\alpha <0}), if \eqn{\beta < 0}{\beta < 0}, it offers an
 #' increasing penalty for responding in a category further away from the
-#' reference_category category r, while \eqn{\beta > 0}{\beta > 0} suggests a
-#' preference for responding in the reference_category category.
+#' baseline_category category r, while \eqn{\beta > 0}{\beta > 0} suggests a
+#' preference for responding in the baseline_category category.
 #'
 #' @param no_states The number of states of the ordinal MRF to be generated.
 #'
@@ -53,8 +53,8 @@
 #' ``blume-capel''. Binary variables are automatically treated as ``ordinal’’.
 #' Defaults to \code{variable_type = "ordinal"}.
 #'
-#' @param reference_category An integer vector of length \code{no_variables} specifying the
-#' reference_category category that is used for the Blume-Capel model (details below).
+#' @param baseline_category An integer vector of length \code{no_variables} specifying the
+#' baseline_category category that is used for the Blume-Capel model (details below).
 #' Can be any integer value between \code{0} and \code{no_categories} (or
 #' \code{no_categories[i]}).
 #'
@@ -76,11 +76,13 @@
 #' Interactions = Interactions + t(Interactions)
 #' Thresholds = matrix(0, nrow = no_variables, ncol = max(no_categories))
 #'
-#' x = mrfSampler(no_states = 1e3,
-#'                no_variables = no_variables,
-#'                no_categories = no_categories,
-#'                interactions = Interactions,
-#'                thresholds = Thresholds)
+#' x = mrfSampler(
+#'   no_states = 1e3,
+#'   no_variables = no_variables,
+#'   no_categories = no_categories,
+#'   interactions = Interactions,
+#'   thresholds = Thresholds
+#' )
 #'
 #' # Generate responses from a network of 2 ordinal and 3 Blume-Capel variables.
 #' no_variables = 5
@@ -97,13 +99,15 @@
 #' Thresholds[3, ] = sort(-abs(rnorm(4)), decreasing = TRUE)
 #' Thresholds[5, ] = sort(-abs(rnorm(4)), decreasing = TRUE)
 #'
-#' x = mrfSampler(no_states = 1e3,
-#'                no_variables = no_variables,
-#'                no_categories = no_categories,
-#'                interactions = Interactions,
-#'                thresholds = Thresholds,
-#'                variable_type = c("b","b","o","b","o"),
-#'                reference_category = 2)
+#' x = mrfSampler(
+#'   no_states = 1e3,
+#'   no_variables = no_variables,
+#'   no_categories = no_categories,
+#'   interactions = Interactions,
+#'   thresholds = Thresholds,
+#'   variable_type = c("b", "b", "o", "b", "o"),
+#'   baseline_category = 2
+#' )
 #'
 #' @export
 mrfSampler = function(no_states,
@@ -112,86 +116,104 @@ mrfSampler = function(no_states,
                       interactions,
                       thresholds,
                       variable_type = "ordinal",
-                      reference_category,
+                      baseline_category,
                       iter = 1e3) {
   # Check no_states, no_variables, iter --------------------------------------------
   if(no_states <= 0 ||
-     abs(no_states - round(no_states)) > .Machine$double.eps)
+    abs(no_states - round(no_states)) > .Machine$double.eps) {
     stop("``no_states'' needs be a positive integer.")
+  }
   if(no_variables <= 0 ||
-     abs(no_variables - round(no_variables)) > .Machine$double.eps)
+    abs(no_variables - round(no_variables)) > .Machine$double.eps) {
     stop("``no_variables'' needs be a positive integer.")
+  }
   if(iter <= 0 ||
-     abs(iter - round(iter)) > .Machine$double.eps)
+    abs(iter - round(iter)) > .Machine$double.eps) {
     stop("``iter'' needs be a positive integer.")
+  }
 
   # Check no_categories --------------------------------------------------------
   if(length(no_categories) == 1) {
     if(no_categories <= 0 ||
-       abs(no_categories - round(no_categories)) > .Machine$double.eps)
+      abs(no_categories - round(no_categories)) > .Machine$double.eps) {
       stop("``no_categories'' needs be a (vector of) positive integer(s).")
+    }
     no_categories = rep(no_categories, no_variables)
   } else {
     for(variable in 1:no_variables) {
       if(no_categories[variable] <= 0 ||
-         abs(no_categories[variable] - round(no_categories[variable])) >
-         .Machine$double.eps)
+        abs(no_categories[variable] - round(no_categories[variable])) >
+          .Machine$double.eps) {
         stop(paste("For variable", variable, "``no_categories'' was not a positive integer."))
+      }
     }
   }
 
   # Check variable specification -----------------------------------------------
   if(length(variable_type) == 1) {
-    variable_type = match.arg(arg = variable_type,
-                              choices = c("ordinal", "blume-capel"))
+    variable_type = match.arg(
+      arg = variable_type,
+      choices = c("ordinal", "blume-capel")
+    )
 
     if(variable_type == "blume-capel" && any(no_categories < 2)) {
-      stop(paste0("The Blume-Capel model only works for ordinal variables with more than two \n",
-                  "response options. But variables ", which(no_categories < 2), " are binary variables."))
+      stop(paste0(
+        "The Blume-Capel model only works for ordinal variables with more than two \n",
+        "response options. But variables ", which(no_categories < 2), " are binary variables."
+      ))
     }
     variable_type = rep(variable_type, no_variables)
-
   } else {
     if(length(variable_type) != no_variables) {
-      stop(paste0("The argument ``variable_type'' should be either a single character string or a \n",
-                  "vector of character strings of length ``no_variables''."))
+      stop(paste0(
+        "The argument ``variable_type'' should be either a single character string or a \n",
+        "vector of character strings of length ``no_variables''."
+      ))
     } else {
-      for(variable in 1:no_variables)
-        variable_type[variable] = match.arg(arg = variable_type[variable],
-                                            choices = c("ordinal", "blume-capel"))
+      for(variable in 1:no_variables) {
+        variable_type[variable] = match.arg(
+          arg = variable_type[variable],
+          choices = c("ordinal", "blume-capel")
+        )
+      }
       if(any(variable_type == "blume-capel" & no_categories < 2)) {
-        stop(paste0("The Blume-Capel model only works for ordinal variables with more than two \n",
-                    "response options. But variables ",
-                    which(variable_type == "blume-capel" & no_categories < 2),
-                    " are binary variables."))
+        stop(paste0(
+          "The Blume-Capel model only works for ordinal variables with more than two \n",
+          "response options. But variables ",
+          which(variable_type == "blume-capel" & no_categories < 2),
+          " are binary variables."
+        ))
       }
     }
   }
 
-  # Check the reference_category for Blume-Capel variables ---------------------
+  # Check the baseline_category for Blume-Capel variables ---------------------
   if(any(variable_type == "blume-capel")) {
-    if(length(reference_category) == 1) {
-      reference_category = rep(reference_category, no_variables)
+    if(length(baseline_category) == 1) {
+      baseline_category = rep(baseline_category, no_variables)
     }
-    if(any(reference_category < 0) || any(abs(reference_category - round(reference_category)) > .Machine$double.eps)) {
+    if(any(baseline_category < 0) || any(abs(baseline_category - round(baseline_category)) > .Machine$double.eps)) {
       stop(paste0("For variables ",
-                  which(reference_category < 0),
-                  " ``reference_category'' was either negative or not integer."))
+                  which(baseline_category < 0),
+                  " ``baseline_category'' was either negative or not integer."))
     }
-    if(any(reference_category - no_categories > 0)) {
+    if(any(baseline_category - no_categories > 0)) {
       stop(paste0("For variables ",
-                  which(reference_category - no_categories > 0),
-                  " the ``reference_category'' category was larger than the maximum category value."))
+                  which(baseline_category - no_categories > 0),
+                  " the ``baseline_category'' category was larger than the maximum category value."))
     }
   }
 
   # Check interactions ---------------------------------------------------------
-  if(!inherits(interactions, what = "matrix"))
+  if(!inherits(interactions, what = "matrix")) {
     interactions = as.matrix(interactions)
-  if(!isSymmetric(interactions))
+  }
+  if(!isSymmetric(interactions)) {
     stop("The matrix ``interactions'' needs to be symmetric.")
-  if(nrow(interactions) != no_variables)
+  }
+  if(nrow(interactions) != no_variables) {
     stop("The matrix ``interactions'' needs to have ``no_variables'' rows and columns.")
+  }
 
   # Check the threshold values -------------------------------------------------
   if(!inherits(thresholds, what = "matrix")) {
@@ -199,19 +221,22 @@ mrfSampler = function(no_states,
       if(length(thresholds) == no_variables) {
         thresholds = matrix(thresholds, ncol = 1)
       } else {
-        stop(paste0("The matrix ``thresholds'' has ",
-                    length(thresholds),
-                    " elements, but requires",
-                    no_variables,
-                    "."))
+        stop(paste0(
+          "The matrix ``thresholds'' has ",
+          length(thresholds),
+          " elements, but requires",
+          no_variables,
+          "."
+        ))
       }
     } else {
       stop("``Thresholds'' needs to be a matrix.")
     }
   }
 
-  if(nrow(thresholds) != no_variables)
+  if(nrow(thresholds) != no_variables) {
     stop("The matrix ``thresholds'' needs to be have ``no_variables'' rows.")
+  }
 
   for(variable in 1:no_variables) {
     if(variable_type[variable] != "blume-capel") {
@@ -220,88 +245,107 @@ mrfSampler = function(no_states,
 
         string = paste(tmp, sep = ",")
 
-        stop(paste0("The matrix ``thresholds'' contains NA(s) for variable ",
-                    variable,
-                    " in category \n",
-                    "(categories) ",
-                    paste(which(is.na(thresholds[variable, 1:no_categories[variable]])), collapse = ", "),
-                    ", where a numeric value is needed."))
+        stop(paste0(
+          "The matrix ``thresholds'' contains NA(s) for variable ",
+          variable,
+          " in category \n",
+          "(categories) ",
+          paste(which(is.na(thresholds[variable, 1:no_categories[variable]])), collapse = ", "),
+          ", where a numeric value is needed."
+        ))
       }
       if(ncol(thresholds) > no_categories[variable]) {
-        if(!anyNA(thresholds[variable, (no_categories[variable]+1):ncol(thresholds)])) {
-          warning(paste0("The matrix ``thresholds'' contains numeric values for variable ",
-                         variable,
-                         " for category \n",
-                         "(categories, i.e., columns) exceding the maximum of ",
-                         no_categories[variable],
-                         ". These values will \n",
-                         "be ignored."))
+        if(!anyNA(thresholds[variable, (no_categories[variable] + 1):ncol(thresholds)])) {
+          warning(paste0(
+            "The matrix ``thresholds'' contains numeric values for variable ",
+            variable,
+            " for category \n",
+            "(categories, i.e., columns) exceding the maximum of ",
+            no_categories[variable],
+            ". These values will \n",
+            "be ignored."
+          ))
         }
       }
     } else {
       if(anyNA(thresholds[variable, 1:2])) {
-        stop(paste0("The Blume-Capel model is chosen for the category thresholds of variable ",
-                    variable,
-                    ". \n",
-                    "This model has two parameters that need to be placed in columns 1 and 2, row \n",
-                    variable,
-                    ", of the ``thresholds'' input matrix. Currently, there are NA(s) in these \n",
-                    "entries, where a numeric value is needed."))
+        stop(paste0(
+          "The Blume-Capel model is chosen for the category thresholds of variable ",
+          variable,
+          ". \n",
+          "This model has two parameters that need to be placed in columns 1 and 2, row \n",
+          variable,
+          ", of the ``thresholds'' input matrix. Currently, there are NA(s) in these \n",
+          "entries, where a numeric value is needed."
+        ))
       }
       if(ncol(thresholds) > 2) {
         if(!anyNA(thresholds[variable, 3:ncol(thresholds)])) {
-          warning(paste0("The Blume-Capel model is chosen for the category thresholds of variable ",
-                         variable,
-                         ". \n",
-                         "This model has two parameters that need to be placed in columns 1 and 2, row \n",
-                         variable,
-                         ", of the ``thresholds'' input matrix. However, there are numeric values \n",
-                         "in higher categories. These values will be ignored."))
+          warning(paste0(
+            "The Blume-Capel model is chosen for the category thresholds of variable ",
+            variable,
+            ". \n",
+            "This model has two parameters that need to be placed in columns 1 and 2, row \n",
+            variable,
+            ", of the ``thresholds'' input matrix. However, there are numeric values \n",
+            "in higher categories. These values will be ignored."
+          ))
         }
       }
     }
-
   }
 
   for(variable in 1:no_variables) {
     if(variable_type[variable] != "blume-capel") {
       for(category in 1:no_categories[variable]) {
-        if(!is.finite(thresholds[variable, category]))
-          stop(paste("The threshold parameter for variable", variable, "and category",
-                     category, "is NA or not finite."))
+        if(!is.finite(thresholds[variable, category])) {
+          stop(paste(
+            "The threshold parameter for variable", variable, "and category",
+            category, "is NA or not finite."
+          ))
+        }
       }
     } else {
-      if(!is.finite(thresholds[variable, 1]))
+      if(!is.finite(thresholds[variable, 1])) {
         stop(paste0(
           "The alpha parameter for the Blume-Capel model for variable ",
           variable,
           " is NA \n",
-          " or not finite."))
-      if(!is.finite(thresholds[variable, 2]))
-        stop(paste0("The beta parameter for the Blume-Capel model for variable",
-                    variable,
-                    "is NA \n",
-                    " or not finite."))
+          " or not finite."
+        ))
+      }
+      if(!is.finite(thresholds[variable, 2])) {
+        stop(paste0(
+          "The beta parameter for the Blume-Capel model for variable",
+          variable,
+          "is NA \n",
+          " or not finite."
+        ))
+      }
     }
   }
 
   # The Gibbs sampler ----------------------------------------------------------
   if(!any(variable_type == "blume-capel")) {
-    x <- sample_omrf_gibbs(no_states = no_states,
-                           no_variables = no_variables,
-                           no_categories = no_categories,
-                           interactions = interactions,
-                           thresholds = thresholds,
-                           iter = iter)
+    x <- sample_omrf_gibbs(
+      no_states = no_states,
+      no_variables = no_variables,
+      no_categories = no_categories,
+      interactions = interactions,
+      thresholds = thresholds,
+      iter = iter
+    )
   } else {
-    x <- sample_bcomrf_gibbs(no_states = no_states,
-                             no_variables = no_variables,
-                             no_categories = no_categories,
-                             interactions = interactions,
-                             thresholds = thresholds,
-                             variable_type = variable_type,
-                             reference_category = reference_category,
-                             iter = iter)
+    x <- sample_bcomrf_gibbs(
+      no_states = no_states,
+      no_variables = no_variables,
+      no_categories = no_categories,
+      interactions = interactions,
+      thresholds = thresholds,
+      variable_type = variable_type,
+      baseline_category = baseline_category,
+      iter = iter
+    )
   }
 
   return(x)

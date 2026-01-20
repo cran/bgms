@@ -16,7 +16,7 @@ data_english = Boredom[Boredom$language != "fr", -1]
 data_english = data_english[, 1:5]
 
 ## ----include=FALSE------------------------------------------------------------
-  fit <- readRDS(system.file("extdata", "fit_boredom.rds", package = "bgms"))
+fit <- readRDS(system.file("extdata", "fit_boredom.rds", package = "bgms"))
 
 ## ----eval = FALSE-------------------------------------------------------------
 # fit = bgmCompare(x = data_french, y = data_english, seed = 1234)
@@ -37,10 +37,11 @@ colnames(french_network) = colnames(data_french)
 rownames(french_network) = colnames(data_french)
 
 qgraph(french_network,
-       theme = "TeamFortress",
-       maximum = 1,
-       fade = FALSE,
-       color = c("#f0ae0e"), vsize = 10, repulsion = .9,
-       label.cex = 1, label.scale = "FALSE",
-       labels = colnames(data_french))
+  theme = "TeamFortress",
+  maximum = 1,
+  fade = FALSE,
+  color = c("#f0ae0e"), vsize = 10, repulsion = .9,
+  label.cex = 1, label.scale = "FALSE",
+  labels = colnames(data_french)
+)
 

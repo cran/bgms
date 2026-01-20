@@ -1,3 +1,21 @@
+# bgms 0.1.6.2
+
+## New features
+
+* added option to separately specify beta priors for the within- and between-cluster probabilities for the SBM prior.
+
+## Other changes
+
+* reparameterized the Blume-capel model to use (score-baseline) instead of score.
+* implemented a new way to compute the denominators and probabilities. This made their computation both faster and more stable.
+* refactored c++ code for better maintainability.
+* removed the prepared_data field from bgm objects.
+
+## Bug fixes
+
+* fixed numerical problems with Blume-Capel variables using HMC and NUTS.
+* fixed a reporting bug where category thresholds for ordinal variables with a single category were incorrectly expanded to two parameters, resulting in spurious NA values.
+
 # bgms 0.1.6.1
 
 ## Other changes
@@ -8,9 +26,9 @@
 
 ## Bug fixes
 
-* Fixed a problem with warmup scheduling for adaptive-metropolis in bgmCompare()
-* Fixed stability problems with parallel sampling for bgm()
-* Fixed spurious output errors printing to console after user interrupt. 
+* fixed a problem with warmup scheduling for adaptive-metropolis in bgmCompare()
+* fixed stability problems with parallel sampling for bgm()
+* fixed spurious output errors printing to console after user interrupt. 
 
 # bgms 0.1.6.0
 
