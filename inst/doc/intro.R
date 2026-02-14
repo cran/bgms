@@ -14,11 +14,11 @@ library(bgms)
 data = Wenchuan[, 1:5]
 head(data)
 
-## ----include=FALSE------------------------------------------------------------
-fit <- readRDS(system.file("extdata", "fit_5items.rds", package = "bgms"))
-
 ## ----eval=FALSE---------------------------------------------------------------
 # fit = bgm(data, seed = 1234)
+
+## ----include=FALSE------------------------------------------------------------
+fit = bgm(data, seed = 1234, chains = 2, display_progress = "none", verbose = FALSE)
 
 ## -----------------------------------------------------------------------------
 summary(fit)

@@ -14,7 +14,7 @@ knitr::opts_chunk$set(
 ## ----include=FALSE------------------------------------------------------------
 library(bgms)
 data = Wenchuan[, 1:5]
-fit <- readRDS(system.file("extdata", "fit_5items.rds", package = "bgms"))
+fit = bgm(data, seed = 1234, chains = 2, display_progress = "none", verbose = FALSE)
 
 ## -----------------------------------------------------------------------------
 summary(fit)$pairwise

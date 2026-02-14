@@ -1,10 +1,10 @@
 prepare_output_bgm = function(
   out, x, num_categories, iter, data_columnnames, is_ordinal_variable,
-  warmup, pairwise_scale, main_alpha, main_beta,
+  warmup, pairwise_scale, standardize, pairwise_scaling_factors, main_alpha, main_beta,
   na_action, na_impute, edge_selection, edge_prior, inclusion_probability,
   beta_bernoulli_alpha, beta_bernoulli_beta, beta_bernoulli_alpha_between,
   beta_bernoulli_beta_between, dirichlet_alpha, lambda,
-  variable_type, update_method, target_accept, hmc_num_leapfrogs,
+  variable_type, baseline_category, update_method, target_accept, hmc_num_leapfrogs,
   nuts_max_depth, learn_mass_matrix, num_chains
 ) {
   arguments = list(
@@ -15,6 +15,7 @@ prepare_output_bgm = function(
     iter = iter,
     warmup = warmup,
     pairwise_scale = pairwise_scale,
+    standardize = standardize,
     main_alpha = main_alpha,
     main_beta = main_beta,
     edge_selection = edge_selection,
@@ -36,6 +37,8 @@ prepare_output_bgm = function(
     num_chains = num_chains,
     num_categories = num_categories,
     data_columnnames = data_columnnames,
+    baseline_category = baseline_category,
+    pairwise_scaling_factors = pairwise_scaling_factors,
     no_variables = ncol(x) # backwards compatibility easybgm
   )
 
@@ -125,9 +128,8 @@ prepare_output_bgm = function(
   if(edge_selection) {
     indicator_means = indicator_summary$mean
     results$posterior_mean_indicator = matrix(0, nrow = num_variables, ncol = num_variables)
-    results$posterior_mean_indicator[upper.tri(results$posterior_mean_indicator)] = indicator_means
-    results$posterior_mean_indicator[lower.tri(results$posterior_mean_indicator)] =
-      t(results$posterior_mean_indicator)[lower.tri(results$posterior_mean_indicator)]
+    results$posterior_mean_indicator[lower.tri(results$posterior_mean_indicator)] = indicator_means
+    results$posterior_mean_indicator = results$posterior_mean_indicator + t(results$posterior_mean_indicator)
     rownames(results$posterior_mean_indicator) = data_columnnames
     colnames(results$posterior_mean_indicator) = data_columnnames
 
@@ -279,10 +281,10 @@ prepare_output_bgmCompare = function(
   out, observations, num_categories, is_ordinal_variable,
   num_groups, group, iter, warmup,
   main_effect_indices, pairwise_effect_indices,
-  data_columnnames, difference_selection,
+  data_columnnames, difference_selection, main_difference_selection,
   difference_prior, difference_selection_alpha, difference_selection_beta,
   inclusion_probability,
-  pairwise_scale, difference_scale,
+  pairwise_scale, difference_scale, standardize, pairwise_scaling_factors,
   update_method, target_accept, nuts_max_depth, hmc_num_leapfrogs,
   learn_mass_matrix, num_chains, projection
 ) {
@@ -295,7 +297,9 @@ prepare_output_bgmCompare = function(
     warmup = warmup,
     pairwise_scale = pairwise_scale,
     difference_scale = difference_scale,
+    standardize = standardize,
     difference_selection = difference_selection,
+    main_difference_selection = main_difference_selection,
     difference_prior = difference_prior,
     difference_selection_alpha = difference_selection_alpha,
     difference_selection_beta = difference_selection_beta,
@@ -312,7 +316,8 @@ prepare_output_bgmCompare = function(
     projection = projection,
     num_categories = num_categories,
     is_ordinal_variable = is_ordinal_variable,
-    group = group
+    group = group,
+    pairwise_scaling_factors = pairwise_scaling_factors
   )
 
   # --- parameter names

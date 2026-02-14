@@ -6,6 +6,8 @@
 #' @param x An object of class `bgms`.
 #' @param ... Ignored.
 #'
+#' @return Invisibly returns `x`.
+#'
 #' @export
 print.bgms <- function(x, ...) {
   arguments <- extract_arguments(x)
@@ -25,6 +27,9 @@ print.bgms <- function(x, ...) {
 
   # Dataset info
   cat(paste0(" Number of variables: ", arguments$num_variables, "\n"))
+  if(isTRUE(arguments$standardize)) {
+    cat(" Prior standardization: enabled\n")
+  }
   if(isTRUE(arguments$na_impute)) {
     cat(paste0(" Number of cases: ", arguments$num_cases, " (missings imputed)\n"))
   } else {
@@ -42,6 +47,7 @@ print.bgms <- function(x, ...) {
 
   cat("Use the `summary()` function for posterior summaries and chain diagnostics.\n")
   cat("See the `easybgm` package for summary and plotting tools.\n")
+  invisible(x)
 }
 
 

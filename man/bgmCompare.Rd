@@ -9,6 +9,7 @@ bgmCompare(
   y,
   group_indicator,
   difference_selection = TRUE,
+  main_difference_selection = FALSE,
   variable_type = "ordinal",
   baseline_category,
   difference_scale = 1,
@@ -26,11 +27,13 @@ bgmCompare(
   target_accept,
   hmc_num_leapfrogs = 100,
   nuts_max_depth = 10,
-  learn_mass_matrix = FALSE,
+  learn_mass_matrix = TRUE,
   chains = 4,
   cores = parallel::detectCores(),
   display_progress = c("per-chain", "total", "none"),
   seed = NULL,
+  standardize = FALSE,
+  verbose = getOption("bgms.verbose", TRUE),
   main_difference_model,
   reference_category,
   main_difference_scale,
@@ -64,6 +67,13 @@ rows of \code{x} (multi-group designs). Ignored if \code{y} is supplied.}
 
 \item{difference_selection}{Logical. If \code{TRUE}, spike-and-slab priors
 are applied to difference parameters. Default: \code{TRUE}.}
+
+\item{main_difference_selection}{Logical. If \code{TRUE}, apply spike-and-slab
+selection to main effect (threshold) differences. If \code{FALSE}, main
+effect differences are always included (no selection). Since main effects
+are often nuisance parameters and their selection can interfere with
+pairwise selection under the Beta-Bernoulli prior, the default is
+\code{FALSE}. Only used when \code{difference_selection = TRUE}.}
 
 \item{variable_type}{Character vector specifying type of each variable:
 \code{"ordinal"} (default) or \code{"blume-capel"}.}
@@ -111,8 +121,8 @@ Defaults: 0.44 (Metropolis), 0.65 (HMC), 0.80 (NUTS).}
 
 \item{nuts_max_depth}{Integer. Maximum tree depth for NUTS. Default: \code{10}.}
 
-\item{learn_mass_matrix}{Logical. If \code{TRUE}, adapt the mass matrix
-during warmup (HMC/NUTS only). Default: \code{FALSE}.}
+\item{learn_mass_matrix}{Logical. If \code{TRUE}, adapts a diagonal mass
+matrix during warmup (HMC/NUTS only). Default: \code{TRUE}.}
 
 \item{chains}{Integer. Number of parallel chains. Default: \code{4}.}
 
@@ -124,6 +134,20 @@ during warmup (HMC/NUTS only). Default: \code{FALSE}.}
 Default: \code{"per-chain"}.}
 
 \item{seed}{Optional integer. Random seed for reproducibility.}
+
+\item{standardize}{Logical. If \code{TRUE}, the Cauchy prior scale for each
+pairwise interaction (both baseline and difference) is adjusted based on
+the range of response scores. Without standardization, pairs with more
+response categories experience less shrinkage because their naturally
+smaller interaction effects make a fixed prior relatively wide.
+Standardization equalizes relative shrinkage across all pairs, with
+\code{pairwise_scale} itself applying to the unit interval (binary) case.
+See \code{\link{bgm}} for details on the adjustment. Default: \code{FALSE}.}
+
+\item{verbose}{Logical. If \code{TRUE}, prints informational messages
+during data processing (e.g., missing data handling, variable recoding).
+Defaults to \code{getOption("bgms.verbose", TRUE)}. Set
+\code{options(bgms.verbose = FALSE)} to suppress messages globally.}
 
 \item{main_difference_model, reference_category, pairwise_difference_scale, main_difference_scale, pairwise_difference_prior, main_difference_prior, pairwise_difference_probability, main_difference_probability, pairwise_beta_bernoulli_alpha, pairwise_beta_bernoulli_beta, main_beta_bernoulli_alpha, main_beta_bernoulli_beta, interaction_scale, threshold_alpha, threshold_beta, burnin, save}{`r lifecycle::badge("deprecated")`
 Deprecated arguments as of **bgms 0.1.6.0**.
@@ -167,7 +191,7 @@ selection can be applied to identify differences across groups.
 }
 \details{
 This function extends the ordinal MRF framework
-\insertCite{MarsmanVandenBerghHaslbeck_2024;textual}{bgms} to multiple
+\insertCite{MarsmanVandenBerghHaslbeck_2025;textual}{bgms} to multiple
 groups. The basic idea of modeling, analyzing, and testing group
 differences in MRFs was introduced in
 \insertCite{MarsmanWaldorpSekulovskiHaslbeck_2024;textual}{bgms}, where
@@ -240,7 +264,7 @@ at their learned values, and proposal SDs remain constant.
 x = Boredom[Boredom$language == "fr", 2:6]
 y = Boredom[Boredom$language != "fr", 2:6]
 
-fit <- bgmCompare(x, y)
+fit <- bgmCompare(x, y, chains = 2)
 
 # Posterior inclusion probabilities
 summary(fit)$indicator

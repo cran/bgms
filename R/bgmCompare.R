@@ -10,7 +10,7 @@
 #'
 #' @details
 #' This function extends the ordinal MRF framework
-#' \insertCite{MarsmanVandenBerghHaslbeck_2024;textual}{bgms} to multiple
+#' \insertCite{MarsmanVandenBerghHaslbeck_2025;textual}{bgms} to multiple
 #' groups. The basic idea of modeling, analyzing, and testing group
 #' differences in MRFs was introduced in
 #' \insertCite{MarsmanWaldorpSekulovskiHaslbeck_2024;textual}{bgms}, where
@@ -81,6 +81,12 @@
 #'   rows of \code{x} (multi-group designs). Ignored if \code{y} is supplied.
 #' @param difference_selection Logical. If \code{TRUE}, spike-and-slab priors
 #'   are applied to difference parameters. Default: \code{TRUE}.
+#' @param main_difference_selection Logical. If \code{TRUE}, apply spike-and-slab
+#'   selection to main effect (threshold) differences. If \code{FALSE}, main
+#'   effect differences are always included (no selection). Since main effects
+#'   are often nuisance parameters and their selection can interfere with
+#'   pairwise selection under the Beta-Bernoulli prior, the default is
+#'   \code{FALSE}. Only used when \code{difference_selection = TRUE}.
 #' @param variable_type Character vector specifying type of each variable:
 #'   \code{"ordinal"} (default) or \code{"blume-capel"}.
 #' @param baseline_category Integer or vector giving the baseline category
@@ -96,6 +102,14 @@
 #'   model. Defaults: \code{1}.
 #' @param pairwise_scale Double. Scale of the Cauchy prior for baseline
 #'   pairwise interactions. Default: \code{2.5}.
+#' @param standardize Logical. If \code{TRUE}, the Cauchy prior scale for each
+#'   pairwise interaction (both baseline and difference) is adjusted based on
+#'   the range of response scores. Without standardization, pairs with more
+#'   response categories experience less shrinkage because their naturally
+#'   smaller interaction effects make a fixed prior relatively wide.
+#'   Standardization equalizes relative shrinkage across all pairs, with
+#'   \code{pairwise_scale} itself applying to the unit interval (binary) case.
+#'   See \code{\link{bgm}} for details on the adjustment. Default: \code{FALSE}.
 #' @param main_alpha,main_beta Doubles. Shape parameters of the beta-prime
 #'   prior for baseline threshold parameters. Defaults: \code{0.5}.
 #' @param iter Integer. Number of post–warmup iterations per chain.
@@ -108,6 +122,10 @@
 #' @param display_progress Character. Controls progress reporting:
 #'   \code{"per-chain"}, \code{"total"}, or \code{"none"}.
 #'   Default: \code{"per-chain"}.
+#' @param verbose Logical. If \code{TRUE}, prints informational messages
+#'   during data processing (e.g., missing data handling, variable recoding).
+#'   Defaults to \code{getOption("bgms.verbose", TRUE)}. Set
+#'   \code{options(bgms.verbose = FALSE)} to suppress messages globally.
 #' @param update_method Character. Sampling algorithm:
 #'   \code{"adaptive-metropolis"}, \code{"hamiltonian-mc"}, or \code{"nuts"}.
 #'   Default: \code{"nuts"}.
@@ -115,8 +133,8 @@
 #'   Defaults: 0.44 (Metropolis), 0.65 (HMC), 0.80 (NUTS).
 #' @param hmc_num_leapfrogs Integer. Leapfrog steps for HMC. Default: \code{100}.
 #' @param nuts_max_depth Integer. Maximum tree depth for NUTS. Default: \code{10}.
-#' @param learn_mass_matrix Logical. If \code{TRUE}, adapt the mass matrix
-#'   during warmup (HMC/NUTS only). Default: \code{FALSE}.
+#' @param learn_mass_matrix Logical. If \code{TRUE}, adapts a diagonal mass
+#' matrix during warmup (HMC/NUTS only). Default: \code{TRUE}.
 #' @param chains Integer. Number of parallel chains. Default: \code{4}.
 #' @param cores Integer. Number of CPU cores. Default:
 #'   \code{parallel::detectCores()}.
@@ -162,7 +180,7 @@
 #' x = Boredom[Boredom$language == "fr", 2:6]
 #' y = Boredom[Boredom$language != "fr", 2:6]
 #'
-#' fit <- bgmCompare(x, y)
+#' fit <- bgmCompare(x, y, chains = 2)
 #'
 #' # Posterior inclusion probabilities
 #' summary(fit)$indicator
@@ -180,6 +198,7 @@ bgmCompare = function(
   y,
   group_indicator,
   difference_selection = TRUE,
+  main_difference_selection = FALSE,
   variable_type = "ordinal",
   baseline_category,
   difference_scale = 1,
@@ -197,11 +216,13 @@ bgmCompare = function(
   target_accept,
   hmc_num_leapfrogs = 100,
   nuts_max_depth = 10,
-  learn_mass_matrix = FALSE,
+  learn_mass_matrix = TRUE,
   chains = 4,
   cores = parallel::detectCores(),
   display_progress = c("per-chain", "total", "none"),
   seed = NULL,
+  standardize = FALSE,
+  verbose = getOption("bgms.verbose", TRUE),
   main_difference_model,
   reference_category,
   main_difference_scale,
@@ -220,6 +241,11 @@ bgmCompare = function(
   burnin,
   save
 ) {
+  # Set verbose option for internal functions, restore on exit
+  old_verbose <- getOption("bgms.verbose")
+  options(bgms.verbose = verbose)
+  on.exit(options(bgms.verbose = old_verbose), add = TRUE)
+
   if(hasArg(main_difference_model)) {
     lifecycle::deprecate_warn("0.1.6.0", "bgmCompare(main_difference_model =)")
   }
@@ -375,6 +401,15 @@ bgmCompare = function(
   check_positive_integer(iter, "iter")
   check_non_negative_integer(warmup, "warmup")
 
+  # Warmup warnings for HMC/NUTS
+  if (verbose && update_method %in% c("hmc", "nuts")) {
+    if (warmup < 20) {
+      warning("warmup = ", warmup, ": no mass matrix estimation (needs >= 20).")
+    } else if (warmup < 150) {
+      warning("warmup = ", warmup, ": using proportional allocation (needs >= 150 for fixed buffers).")
+    }
+  }
+
   # Check na_action
   na_action_input = na_action
   na_action = try(match.arg(na_action), silent = TRUE)
@@ -459,6 +494,52 @@ bgmCompare = function(
     }
   }
 
+  # Compute pairwise scaling factors for standardized priors --------------------
+  pairwise_scaling_factors = matrix(1, nrow = num_variables, ncol = num_variables)
+  if(standardize) {
+    for(v1 in seq_len(num_variables - 1)) {
+      for(v2 in seq((v1 + 1), num_variables)) {
+        if(ordinal_variable[v1] && ordinal_variable[v2]) {
+          # Both ordinal: M_i * M_j
+          pairwise_scaling_factors[v1, v2] = num_categories[v1] * num_categories[v2]
+        } else if(!ordinal_variable[v1] && !ordinal_variable[v2]) {
+          # Both Blume-Capel: max of endpoint products
+          b1 = baseline_category[v1]
+          b2 = baseline_category[v2]
+          m1 = num_categories[v1]
+          m2 = num_categories[v2]
+          endpoints1 = c(-b1, m1 - b1)
+          endpoints2 = c(-b2, m2 - b2)
+          all_products = abs(outer(endpoints1, endpoints2))
+          pairwise_scaling_factors[v1, v2] = max(all_products)
+        } else {
+          # Mixed: one ordinal, one Blume-Capel
+          if(ordinal_variable[v1]) {
+            m1 = num_categories[v1]
+            b2 = baseline_category[v2]
+            m2 = num_categories[v2]
+            endpoints1 = c(0, m1)
+            endpoints2 = c(-b2, m2 - b2)
+          } else {
+            b1 = baseline_category[v1]
+            m1 = num_categories[v1]
+            m2 = num_categories[v2]
+            endpoints1 = c(-b1, m1 - b1)
+            endpoints2 = c(0, m2)
+          }
+          all_products = abs(outer(endpoints1, endpoints2))
+          pairwise_scaling_factors[v1, v2] = max(all_products)
+        }
+        pairwise_scaling_factors[v2, v1] = pairwise_scaling_factors[v1, v2]
+      }
+    }
+  }
+
+  # Add variable names to scaling factors matrix
+  varnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(num_variables)) else colnames(x)
+  rownames(pairwise_scaling_factors) = varnames
+  colnames(pairwise_scaling_factors) = varnames
+
   # Compute group-level data
   num_groups = length(unique(group))
   group_indices = matrix(NA, nrow = num_groups, ncol = 2)
@@ -503,6 +584,7 @@ bgmCompare = function(
     main_alpha = main_alpha,
     main_beta = main_beta,
     pairwise_scale = pairwise_scale,
+    pairwise_scaling_factors = pairwise_scaling_factors,
     difference_scale = difference_scale,
     difference_selection_alpha = beta_bernoulli_alpha,
     difference_selection_beta = beta_bernoulli_beta,
@@ -511,6 +593,7 @@ bgmCompare = function(
     is_ordinal_variable = ordinal_variable,
     baseline_category = baseline_category,
     difference_selection = difference_selection,
+    main_difference_selection = main_difference_selection,
     main_effect_indices = main_effect_indices,
     pairwise_effect_indices = pairwise_effect_indices,
     target_accept = target_accept,
@@ -544,12 +627,15 @@ bgmCompare = function(
         pairwise_effect_indices = pairwise_effect_indices,
         data_columnnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
         difference_selection = difference_selection,
+        main_difference_selection = main_difference_selection,
         difference_prior = difference_prior,
         difference_selection_alpha = beta_bernoulli_alpha,
         difference_selection_beta = beta_bernoulli_beta,
         inclusion_probability = model$inclusion_probability_difference,
         pairwise_scale = pairwise_scale,
         difference_scale = difference_scale,
+        standardize = standardize,
+        pairwise_scaling_factors = pairwise_scaling_factors,
         update_method = update_method,
         target_accept = target_accept,
         nuts_max_depth = nuts_max_depth,
@@ -582,12 +668,15 @@ bgmCompare = function(
     pairwise_effect_indices = pairwise_effect_indices,
     data_columnnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
     difference_selection = difference_selection,
+    main_difference_selection = main_difference_selection,
     difference_prior = difference_prior,
     difference_selection_alpha = beta_bernoulli_alpha,
     difference_selection_beta = beta_bernoulli_beta,
     inclusion_probability = model$inclusion_probability_difference,
     pairwise_scale = pairwise_scale,
     difference_scale = difference_scale,
+    standardize = standardize,
+    pairwise_scaling_factors = pairwise_scaling_factors,
     update_method = update_method,
     target_accept = target_accept,
     nuts_max_depth = nuts_max_depth,

@@ -188,7 +188,7 @@ void impute_missing_bgm (
  * Notes:
  *  - Uses `vectorize_model_parameters_bgm()` and its inverse to map between
  *    parameter matrices and flat vectors.
- *  - Calls `log_pseudoposterior()` and `gradient_log_pseudoposterior()` internally.
+ *  - Calls `logp_and_gradient()` internally for efficient fused computation.
  *  - This function is typically called once before adaptation starts.
  */
 double find_initial_stepsize_bgm(
@@ -204,6 +204,7 @@ double find_initial_stepsize_bgm(
     const double main_alpha,
     const double main_beta,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const double target_acceptance,
     const arma::imat& pairwise_stats,
     SafeRNG& rng
@@ -212,6 +213,9 @@ double find_initial_stepsize_bgm(
     main_effects, pairwise_effects, inclusion_indicator,
     num_categories, is_ordinal_variable
   );
+
+  // Pre-convert observations to double once (avoids repeated conversion in gradient evaluations)
+  const arma::mat obs_double = arma::conv_to<arma::mat>::from(observations);
 
   arma::vec grad_obs;
   arma::imat index_matrix;
@@ -227,29 +231,30 @@ double find_initial_stepsize_bgm(
   auto grad = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgm(theta_vec, current_main, current_pair, inclusion_indicator,
                                      num_categories, is_ordinal_variable);
-    arma::mat rm = observations * current_pair;
+    arma::mat rm = obs_double * current_pair;
 
     return gradient_log_pseudoposterior (
         current_main, current_pair, inclusion_indicator, observations,
         num_categories, baseline_category, is_ordinal_variable, main_alpha,
-        main_beta, pairwise_scale, rm, index_matrix, grad_obs
+        main_beta, pairwise_scale, pairwise_scaling_factors, rm, index_matrix, grad_obs
     );
   };
 
-  auto log_post = [&](const arma::vec& theta_vec) {
+  auto joint = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgm(theta_vec, current_main, current_pair,
-                                     inclusion_indicator,
-                                     num_categories, is_ordinal_variable);
-    arma::mat rm = observations * current_pair;
-    return log_pseudoposterior(
+                                     inclusion_indicator, num_categories,
+                                     is_ordinal_variable);
+    arma::mat rm = obs_double * current_pair;
+    return logp_and_gradient(
       current_main, current_pair, inclusion_indicator, observations,
       num_categories, counts_per_category, blume_capel_stats,
       baseline_category, is_ordinal_variable, main_alpha, main_beta,
-      pairwise_scale, pairwise_stats, rm
+      pairwise_scale, pairwise_scaling_factors, pairwise_stats, rm,
+      index_matrix, grad_obs
     );
   };
 
-  return heuristic_initial_step_size(theta, log_post, grad, rng, target_acceptance);
+  return heuristic_initial_step_size(theta, grad, joint, rng, target_acceptance);
 }
 
 
@@ -411,6 +416,7 @@ void update_pairwise_effects_metropolis_bgm (
     arma::mat& proposal_sd_pairwise_effects,
     RWMAdaptationController& adapter,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const int num_variables,
     arma::mat& residual_matrix,
     const arma::uvec& is_ordinal_variable,
@@ -425,27 +431,26 @@ void update_pairwise_effects_metropolis_bgm (
   for (int variable1 = 0; variable1 < num_variables - 1; variable1++) {
     for (int variable2 = variable1 + 1; variable2 < num_variables; variable2++) {
       if (inclusion_indicator(variable1, variable2) == 1) {
-        double& value = pairwise_effects(variable1, variable2);
+        double current = pairwise_effects(variable1, variable2);
         double proposal_sd = proposal_sd_pairwise_effects(variable1, variable2);
-        double current = value;
 
+        // Lambda computes log-posterior at theta using optimized residual-based version
         auto log_post = [&](double theta) {
-          pairwise_effects(variable1, variable2) = theta;
-          pairwise_effects(variable2, variable1) = theta;
-
+          double delta = theta - current;
           return log_pseudoposterior_interactions_component(
-            pairwise_effects, main_effects, observations, num_categories,
+            pairwise_effects, main_effects, residual_matrix, observations, num_categories,
             inclusion_indicator, is_ordinal_variable, baseline_category,
-            pairwise_scale, pairwise_stats, variable1, variable2
+            pairwise_scale, pairwise_scaling_factors, pairwise_stats, variable1, variable2, delta
           );
         };
 
         SamplerResult result = rwm_sampler(current, proposal_sd, log_post, rng);
 
-        value = result.state[0];
+        double value = result.state[0];
+        pairwise_effects(variable1, variable2) = value;
         pairwise_effects(variable2, variable1) = value;
 
-        if(current != value) {
+        if (current != value) {
           double delta = value - current;
           residual_matrix.col(variable1) += arma::conv_to<arma::vec>::from(observations.col(variable2)) * delta;
           residual_matrix.col(variable2) += arma::conv_to<arma::vec>::from(observations.col(variable1)) * delta;
@@ -467,8 +472,7 @@ void update_pairwise_effects_metropolis_bgm (
  *
  * Procedure:
  *  - Flatten parameters into a vector with `vectorize_model_parameters_bgm()`.
- *  - Define log-pseudoposterior and gradient functions using
- *    `log_pseudoposterior()` and `gradient_log_pseudoposterior_active()`.
+ *  - Define gradient and joint (log-posterior + gradient) functions.
  *  - Run the HMC leapfrog integrator via `hmc_sampler()`.
  *  - Unpack the accepted state back into `main_effects` and `pairwise_effects`.
  *  - Recompute the residual matrix and update the adaptation controller.
@@ -516,6 +520,7 @@ void update_hmc_bgm(
     const double main_alpha,
     const double main_beta,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     arma::mat& residual_matrix,
     const arma::imat& pairwise_stats,
     const int num_leapfrogs,
@@ -529,6 +534,9 @@ void update_hmc_bgm(
     main_effects, pairwise_effects, inclusion_indicator,
     num_categories, is_ordinal_variable
   );
+
+  // Pre-convert observations to double once (avoids repeated conversion in gradient evaluations)
+  const arma::mat obs_double = arma::conv_to<arma::mat>::from(observations);
 
   arma::vec grad_obs;
   arma::imat index_matrix;
@@ -544,24 +552,26 @@ void update_hmc_bgm(
   auto grad = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgm(theta_vec, current_main, current_pair, inclusion_indicator,
                                  num_categories, is_ordinal_variable);
-    arma::mat rm = observations * current_pair;
+    arma::mat rm = obs_double * current_pair;
 
     return gradient_log_pseudoposterior (
       current_main, current_pair, inclusion_indicator, observations,
       num_categories, baseline_category, is_ordinal_variable, main_alpha,
-      main_beta, pairwise_scale, rm, index_matrix, grad_obs
+      main_beta, pairwise_scale, pairwise_scaling_factors, rm, index_matrix, grad_obs
     );
   };
 
-  auto log_post = [&](const arma::vec& theta_vec) {
-    unvectorize_model_parameters_bgm(theta_vec, current_main, current_pair, inclusion_indicator,
-                                 num_categories, is_ordinal_variable);
-    arma::mat rm = observations * current_pair;
-    return log_pseudoposterior (
+  auto joint = [&](const arma::vec& theta_vec) {
+    unvectorize_model_parameters_bgm(theta_vec, current_main, current_pair,
+                                     inclusion_indicator, num_categories,
+                                     is_ordinal_variable);
+    arma::mat rm = obs_double * current_pair;
+    return logp_and_gradient(
       current_main, current_pair, inclusion_indicator, observations,
       num_categories, counts_per_category, blume_capel_stats,
       baseline_category, is_ordinal_variable, main_alpha, main_beta,
-      pairwise_scale, pairwise_stats, rm
+      pairwise_scale, pairwise_scaling_factors, pairwise_stats, rm,
+      index_matrix, grad_obs
     );
   };
 
@@ -571,7 +581,7 @@ void update_hmc_bgm(
   );
 
   SamplerResult result = hmc_sampler(
-    current_state, adapt.current_step_size(), log_post, grad, num_leapfrogs,
+    current_state, adapt.current_step_size(), grad, joint, num_leapfrogs,
     active_inv_mass, rng
   );
 
@@ -580,9 +590,25 @@ void update_hmc_bgm(
     current_state, main_effects, pairwise_effects, inclusion_indicator,
     num_categories, is_ordinal_variable
   );
-  residual_matrix = observations * pairwise_effects;
+  residual_matrix = obs_double * pairwise_effects;
 
   adapt.update(current_state, result.accept_prob, iteration);
+
+  // If mass matrix was just updated, re-run the heuristic to find a good
+  // step size for the new mass matrix. Use current step size as starting point.
+  if (adapt.mass_matrix_just_updated()) {
+    arma::vec new_inv_mass = inv_mass_active(
+      adapt.inv_mass_diag(), inclusion_indicator, num_categories,
+      is_ordinal_variable, selection
+    );
+    double current_eps = adapt.current_step_size();
+    double new_eps = heuristic_initial_step_size(
+      current_state, grad, joint, new_inv_mass, rng,
+      0.625,        // target_acceptance
+      current_eps   // init_step: use current step size as starting point
+    );
+    adapt.reinit_stepsize(new_eps);
+  }
 }
 
 
@@ -592,9 +618,8 @@ void update_hmc_bgm(
  *
  * Procedure:
  *  - Flatten parameters into a vector with `vectorize_model_parameters_bgm()`.
- *  - Define log-pseudoposterior and gradient functions using
- *    `log_pseudoposterior()` and `gradient_log_pseudoposterior_active()`.
- *  - Run the NUTS sampler via `nuts_sampler()`, building a trajectory
+ *  - Define a joint function using `logp_and_gradient()` for efficient fused computation.
+ *  - Run the NUTS sampler via `nuts_sampler_joint()`, building a trajectory
  *    up to the maximum tree depth.
  *  - Unpack the accepted state back into `main_effects` and `pairwise_effects`.
  *  - Recompute the residual matrix and update the adaptation controller.
@@ -643,6 +668,7 @@ SamplerResult update_nuts_bgm(
     const double main_alpha,
     const double main_beta,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const arma::imat& pairwise_stats,
     arma::mat& residual_matrix,
     const int nuts_max_depth,
@@ -656,6 +682,9 @@ SamplerResult update_nuts_bgm(
     main_effects, pairwise_effects, inclusion_indicator,
     num_categories, is_ordinal_variable
   );
+
+  // Pre-convert observations to double once (avoids repeated conversion in gradient evaluations)
+  const arma::mat obs_double = arma::conv_to<arma::mat>::from(observations);
 
   arma::vec grad_obs;
   arma::imat index_matrix;
@@ -671,25 +700,26 @@ SamplerResult update_nuts_bgm(
   auto grad = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgm(theta_vec, current_main, current_pair, inclusion_indicator,
                                      num_categories, is_ordinal_variable);
-    arma::mat rm = observations * current_pair;
+    arma::mat rm = obs_double * current_pair;
 
     return gradient_log_pseudoposterior (
         current_main, current_pair, inclusion_indicator, observations,
         num_categories, baseline_category, is_ordinal_variable, main_alpha,
-        main_beta, pairwise_scale, rm, index_matrix, grad_obs
+        main_beta, pairwise_scale, pairwise_scaling_factors, rm, index_matrix, grad_obs
     );
   };
 
-  auto log_post = [&](const arma::vec& theta_vec) {
+  auto joint = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgm(theta_vec, current_main, current_pair,
-                                 inclusion_indicator, num_categories,
-                                 is_ordinal_variable);
-    arma::mat rm = observations * current_pair;
-    return log_pseudoposterior(
+                                     inclusion_indicator, num_categories,
+                                     is_ordinal_variable);
+    arma::mat rm = obs_double * current_pair;
+    return logp_and_gradient(
       current_main, current_pair, inclusion_indicator, observations,
       num_categories, counts_per_category, blume_capel_stats,
       baseline_category, is_ordinal_variable, main_alpha, main_beta,
-      pairwise_scale, pairwise_stats, rm
+      pairwise_scale, pairwise_scaling_factors, pairwise_stats, rm,
+      index_matrix, grad_obs
     );
   };
 
@@ -698,8 +728,8 @@ SamplerResult update_nuts_bgm(
     is_ordinal_variable, selection
   );
 
-  SamplerResult result = nuts_sampler(
-    current_state, adapt.current_step_size(), log_post, grad,
+  SamplerResult result = nuts_sampler_joint(
+    current_state, adapt.current_step_size(), joint,
     active_inv_mass, rng, nuts_max_depth
   );
 
@@ -708,9 +738,25 @@ SamplerResult update_nuts_bgm(
     current_state, main_effects, pairwise_effects, inclusion_indicator,
     num_categories, is_ordinal_variable
   );
-  residual_matrix = observations * pairwise_effects;
+  residual_matrix = obs_double * pairwise_effects;
 
   adapt.update(current_state, result.accept_prob, iteration);
+
+  // If mass matrix was just updated, re-run the heuristic to find a good
+  // step size for the new mass matrix. Use current step size as starting point.
+  if (adapt.mass_matrix_just_updated()) {
+    arma::vec new_inv_mass = inv_mass_active(
+      adapt.inv_mass_diag(), inclusion_indicator, num_categories,
+      is_ordinal_variable, selection
+    );
+    double current_eps = adapt.current_step_size();
+    double new_eps = heuristic_initial_step_size(
+      current_state, grad, joint, new_inv_mass, rng,
+      0.625,        // target_acceptance
+      current_eps   // init_step: use current step size as starting point
+    );
+    adapt.reinit_stepsize(new_eps);
+  }
 
   return result;
 }
@@ -768,6 +814,7 @@ void tune_proposal_sd_bgm(
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const arma::imat& pairwise_stats,
     int iteration,
     const WarmupSchedule& sched,
@@ -785,27 +832,26 @@ void tune_proposal_sd_bgm(
 
   for (int variable1 = 0; variable1 < num_variables - 1; variable1++) {
     for (int variable2 = variable1 + 1; variable2 < num_variables; variable2++) {
-      double& value = pairwise_effects(variable1, variable2);
+      double current = pairwise_effects(variable1, variable2);
       double proposal_sd = proposal_sd_pairwise_effects(variable1, variable2);
-      double current = value;
 
+      // Lambda computes log-posterior at theta using optimized residual-based version
       auto log_post = [&](double theta) {
-        pairwise_effects(variable1, variable2) = theta;
-        pairwise_effects(variable2, variable1) = theta;
-
+        double delta = theta - current;
         return log_pseudoposterior_interactions_component(
-          pairwise_effects, main_effects, observations, num_categories,
+          pairwise_effects, main_effects, residual_matrix, observations, num_categories,
           inclusion_indicator, is_ordinal_variable, baseline_category,
-          pairwise_scale, pairwise_stats, variable1, variable2
+          pairwise_scale, pairwise_scaling_factors, pairwise_stats, variable1, variable2, delta
         );
       };
 
       SamplerResult result = rwm_sampler(current, proposal_sd, log_post, rng);
 
-      value = result.state[0];
+      double value = result.state[0];
+      pairwise_effects(variable1, variable2) = value;
       pairwise_effects(variable2, variable1) = value;
 
-      if(current != value) {
+      if (current != value) {
         double delta = value - current;
         residual_matrix.col(variable1) += arma::conv_to<arma::vec>::from(observations.col(variable2)) * delta;
         residual_matrix.col(variable2) += arma::conv_to<arma::vec>::from(observations.col(variable1)) * delta;
@@ -877,6 +923,7 @@ void update_indicator_edges_metropolis_bgm (
     const arma::ivec& num_categories,
     const arma::mat& proposal_sd,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const arma::imat& index,
     const int num_interactions,
     const int num_persons,
@@ -907,13 +954,14 @@ void update_indicator_edges_metropolis_bgm (
     // Add prior ratio and proposal correction
     const double inclusion_probability_ij = inclusion_probability(variable1, variable2);
     const double sd = proposal_sd(variable1, variable2);
+    const double scaled_pairwise_scale = pairwise_scale * pairwise_scaling_factors(variable1, variable2);
 
     if (proposing_addition) {
-      log_accept += R::dcauchy(proposed_state, 0.0, pairwise_scale, true);
+      log_accept += R::dcauchy(proposed_state, 0.0, scaled_pairwise_scale, true);
       log_accept -= R::dnorm(proposed_state, current_state, sd, true);
       log_accept += MY_LOG (inclusion_probability_ij) - MY_LOG (1.0 - inclusion_probability_ij);
     } else {
-      log_accept -= R::dcauchy(current_state, 0.0, pairwise_scale, true);
+      log_accept -= R::dcauchy(current_state, 0.0, scaled_pairwise_scale, true);
       log_accept += R::dnorm(current_state, proposed_state, sd, true);
       log_accept -= MY_LOG (inclusion_probability_ij) - MY_LOG (1.0 - inclusion_probability_ij);
     }
@@ -1017,6 +1065,7 @@ void gibbs_update_step_bgm (
     const arma::imat& observations,
     const arma::ivec& num_categories,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     arma::mat& proposal_sd_pairwise,
     arma::mat& proposal_sd_main,
     const arma::imat& index,
@@ -1064,7 +1113,7 @@ void gibbs_update_step_bgm (
   if (schedule.selection_enabled(iteration)) {
     update_indicator_edges_metropolis_bgm (
         pairwise_effects, main_effects, inclusion_indicator, observations,
-        num_categories, proposal_sd_pairwise, pairwise_scale, index,
+        num_categories, proposal_sd_pairwise, pairwise_scale, pairwise_scaling_factors, index,
         num_pairwise, num_persons, residual_matrix, inclusion_probability,
         is_ordinal_variable, baseline_category, pairwise_stats,
         rng
@@ -1076,7 +1125,7 @@ void gibbs_update_step_bgm (
     update_pairwise_effects_metropolis_bgm (
         pairwise_effects, main_effects, inclusion_indicator, observations,
         num_categories, proposal_sd_pairwise, adapt_pairwise, pairwise_scale,
-        num_variables, residual_matrix, is_ordinal_variable, baseline_category,
+        pairwise_scaling_factors, num_variables, residual_matrix, is_ordinal_variable, baseline_category,
         iteration, pairwise_stats, rng
     );
   }
@@ -1098,7 +1147,7 @@ void gibbs_update_step_bgm (
       main_effects, pairwise_effects, inclusion_indicator, observations,
       num_categories, counts_per_category, blume_capel_stats,
       baseline_category, is_ordinal_variable, main_alpha, main_beta,
-      pairwise_scale, residual_matrix, pairwise_stats, hmc_num_leapfrogs,
+      pairwise_scale, pairwise_scaling_factors, residual_matrix, pairwise_stats, hmc_num_leapfrogs,
       iteration, adapt, learn_mass_matrix, schedule.selection_enabled(iteration),
       rng
     );
@@ -1107,7 +1156,7 @@ void gibbs_update_step_bgm (
       main_effects, pairwise_effects, inclusion_indicator,
       observations, num_categories, counts_per_category, blume_capel_stats,
       baseline_category, is_ordinal_variable, main_alpha, main_beta,
-      pairwise_scale, pairwise_stats, residual_matrix, nuts_max_depth,
+      pairwise_scale, pairwise_scaling_factors, pairwise_stats, residual_matrix, nuts_max_depth,
       iteration, adapt, learn_mass_matrix, schedule.selection_enabled(iteration),
       rng
     );
@@ -1125,7 +1174,7 @@ void gibbs_update_step_bgm (
   tune_proposal_sd_bgm(
     proposal_sd_pairwise, pairwise_effects, main_effects, inclusion_indicator,
     observations, residual_matrix, num_categories, is_ordinal_variable,
-    baseline_category, pairwise_scale, pairwise_stats,
+    baseline_category, pairwise_scale, pairwise_scaling_factors, pairwise_stats,
     iteration, schedule, rng
   );
 }
@@ -1219,6 +1268,7 @@ bgmOutput run_gibbs_sampler_bgm(
     const int hmc_num_leapfrogs,
     const int nuts_max_depth,
     const bool learn_mass_matrix,
+    const arma::mat& pairwise_scaling_factors,
     SafeRNG& rng,
     ProgressManager& pm
 ) {
@@ -1301,7 +1351,7 @@ bgmOutput run_gibbs_sampler_bgm(
       main_effects, pairwise_effects, inclusion_indicator, observations,
       num_categories, counts_per_category, blume_capel_stats,
       baseline_category, is_ordinal_variable, main_alpha, main_beta,
-      pairwise_scale, target_accept, pairwise_stats, rng
+      pairwise_scale, pairwise_scaling_factors, target_accept, pairwise_stats, rng
     );
   }
 
@@ -1349,7 +1399,7 @@ bgmOutput run_gibbs_sampler_bgm(
 
     // Main Gibbs update step for parameters
     gibbs_update_step_bgm (
-        observations, num_categories, pairwise_scale, proposal_sd_pairwise,
+        observations, num_categories, pairwise_scale, pairwise_scaling_factors, proposal_sd_pairwise,
         proposal_sd_main, index, counts_per_category, blume_capel_stats,
         main_alpha, main_beta, num_persons, num_variables, num_pairwise,
         num_main, inclusion_indicator, pairwise_effects, main_effects,

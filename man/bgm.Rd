@@ -27,11 +27,13 @@ bgm(
   target_accept,
   hmc_num_leapfrogs = 100,
   nuts_max_depth = 10,
-  learn_mass_matrix = FALSE,
+  learn_mass_matrix = TRUE,
   chains = 4,
   cores = parallel::detectCores(),
   display_progress = c("per-chain", "total", "none"),
   seed = NULL,
+  standardize = FALSE,
+  verbose = getOption("bgms.verbose", TRUE),
   interaction_scale,
   burnin,
   save,
@@ -128,18 +130,46 @@ Default: \code{10}.}
 
 \item{learn_mass_matrix}{Logical. If \code{TRUE}, adapt a diagonal mass
 matrix during warmup (HMC/NUTS only). If \code{FALSE}, use the identity
-matrix. Default: \code{FALSE}.}
+matrix. Default: \code{TRUE}.}
 
 \item{chains}{Integer. Number of parallel chains to run. Default: \code{4}.}
 
 \item{cores}{Integer. Number of CPU cores for parallel execution.
 Default: \code{parallel::detectCores()}.}
 
-\item{display_progress}{Logical. Whether to show a progress bar during
-sampling. Default: \code{TRUE}.}
+\item{display_progress}{Character. Controls progress reporting during
+sampling. Options: \code{"per-chain"} (separate bar per chain),
+\code{"total"} (single combined bar), or \code{"none"} (no progress).
+Default: \code{"per-chain"}.}
 
 \item{seed}{Optional integer. Random seed for reproducibility. Must be a
 single non-negative integer.}
+
+\item{standardize}{Logical. If \code{TRUE}, the Cauchy prior scale for each
+pairwise interaction is adjusted based on the range of response scores.
+Variables with more response categories have larger score products
+\eqn{x_i \cdot x_j}, which typically correspond to smaller interaction
+effects \eqn{\sigma_{ij}}. Without standardization, a fixed prior scale
+is relatively wide for these smaller effects, resulting in less shrinkage
+for high-category pairs and more shrinkage for low-category pairs.
+Standardization scales the prior proportionally to the maximum score
+product, ensuring equivalent relative shrinkage across all pairs.
+After internal recoding, regular ordinal variables have scores
+\eqn{0, 1, \ldots, m}. The adjusted scale for the interaction between
+variables \eqn{i} and \eqn{j} is \code{pairwise_scale * m_i * m_j},
+so that \code{pairwise_scale} itself applies to the unit interval case
+(binary variables where \eqn{m_i = m_j = 1}). For Blume-Capel variables
+with reference category \eqn{b}, scores are centered as
+\eqn{-b, \ldots, m-b}, and the adjustment uses the maximum absolute
+product of the score endpoints. For mixed pairs, ordinal variables use
+raw score endpoints \eqn{(0, m)} and Blume-Capel variables use centered
+score endpoints \eqn{(-b, m-b)}.
+Default: \code{FALSE}.}
+
+\item{verbose}{Logical. If \code{TRUE}, prints informational messages
+during data processing (e.g., missing data handling, variable recoding).
+Defaults to \code{getOption("bgms.verbose", TRUE)}. Set
+\code{options(bgms.verbose = FALSE)} to suppress messages globally.}
 
 \item{interaction_scale, burnin, save, threshold_alpha, threshold_beta}{`r lifecycle::badge("deprecated")`
 Deprecated arguments as of **bgms 0.1.6.0**.
@@ -221,7 +251,7 @@ priors to infer the network structure.
 This function models the joint distribution of binary and ordinal variables
 using a Markov Random Field, with support for edge selection through Bayesian
 variable selection. The statistical foundation of the model is described in
-\insertCite{MarsmanVandenBerghHaslbeck_2024;textual}{bgms}, where the ordinal
+\insertCite{MarsmanVandenBerghHaslbeck_2025;textual}{bgms}, where the ordinal
 MRF model and its Bayesian estimation procedure were first introduced. While
 the implementation in \pkg{bgms} has since been extended and updated (e.g.,
 alternative priors, parallel chains, HMC/NUTS warmup), it builds on that
@@ -327,8 +357,8 @@ fixed at their learned values, and proposal SDs remain constant.
 \section{Warmup and Adaptation}{
 
 
-The warmup procedure in \code{bgm} is based on the multi–stage adaptation
-schedule used in Stan \insertCite{stan-manual}{bgms}. Warmup iterations are
+The warmup procedure in \code{bgm} uses a multi-stage adaptation
+schedule \insertCite{stan-manual}{bgms}. Warmup iterations are
 split into several phases:
 
 \itemize{
@@ -388,7 +418,7 @@ sampling.
 \examples{
 \donttest{
 # Run bgm on subset of the Wenchuan dataset
-fit = bgm(x = Wenchuan[, 1:5])
+fit = bgm(x = Wenchuan[, 1:5], chains = 2)
 
 # Posterior inclusion probabilities
 summary(fit)$indicator

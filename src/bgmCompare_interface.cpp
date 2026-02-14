@@ -103,6 +103,7 @@ struct GibbsCompareChainRunner : public Worker {
   const double main_alpha;
   const double main_beta;
   const double pairwise_scale;
+  const arma::mat& pairwise_scaling_factors;
   const double difference_scale;
   const double difference_selection_alpha;
   const double difference_selection_beta;
@@ -114,6 +115,7 @@ struct GibbsCompareChainRunner : public Worker {
   const arma::uvec& is_ordinal_variable;
   const arma::ivec& baseline_category;
   const bool difference_selection;
+  const bool main_difference_selection;
   const arma::imat& main_effect_indices;
   const arma::imat& pairwise_effect_indices;
   const double target_accept;
@@ -142,6 +144,7 @@ struct GibbsCompareChainRunner : public Worker {
     double main_alpha,
     double main_beta,
     double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     double difference_scale,
     double difference_selection_alpha,
     double difference_selection_beta,
@@ -153,6 +156,7 @@ struct GibbsCompareChainRunner : public Worker {
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     bool difference_selection,
+    bool main_difference_selection,
     const arma::imat& main_effect_indices,
     const arma::imat& pairwise_effect_indices,
     double target_accept,
@@ -178,6 +182,7 @@ struct GibbsCompareChainRunner : public Worker {
     main_alpha(main_alpha),
     main_beta(main_beta),
     pairwise_scale(pairwise_scale),
+    pairwise_scaling_factors(pairwise_scaling_factors),
     difference_scale(difference_scale),
     difference_selection_alpha(difference_selection_alpha),
     difference_selection_beta(difference_selection_beta),
@@ -189,6 +194,7 @@ struct GibbsCompareChainRunner : public Worker {
     is_ordinal_variable(is_ordinal_variable),
     baseline_category(baseline_category),
     difference_selection(difference_selection),
+    main_difference_selection(main_difference_selection),
     main_effect_indices(main_effect_indices),
     pairwise_effect_indices(pairwise_effect_indices),
     target_accept(target_accept),
@@ -235,6 +241,7 @@ struct GibbsCompareChainRunner : public Worker {
           main_alpha,
           main_beta,
           pairwise_scale,
+          pairwise_scaling_factors,
           difference_scale,
           difference_selection_alpha,
           difference_selection_beta,
@@ -246,6 +253,7 @@ struct GibbsCompareChainRunner : public Worker {
           is_ordinal_variable,
           baseline_category,
           difference_selection,
+          main_difference_selection,
           main_effect_indices,
           pairwise_effect_indices,
           target_accept,
@@ -353,6 +361,7 @@ Rcpp::List run_bgmCompare_parallel(
     double main_alpha,
     double main_beta,
     double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     double difference_scale,
     double difference_selection_alpha,
     double difference_selection_beta,
@@ -364,6 +373,7 @@ Rcpp::List run_bgmCompare_parallel(
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     bool difference_selection,
+    bool main_difference_selection,
     const arma::imat& main_effect_indices,
     const arma::imat& pairwise_effect_indices,
     double target_accept,
@@ -399,10 +409,10 @@ Rcpp::List run_bgmCompare_parallel(
   GibbsCompareChainRunner worker(
       observations, num_groups,
       counts_per_category, blume_capel_stats, pairwise_stats,
-      num_categories, main_alpha, main_beta, pairwise_scale, difference_scale,
+      num_categories, main_alpha, main_beta, pairwise_scale, pairwise_scaling_factors, difference_scale,
       difference_selection_alpha, difference_selection_beta, difference_prior,
       iter, warmup, na_impute, missing_data_indices, is_ordinal_variable,
-      baseline_category, difference_selection, main_effect_indices,
+      baseline_category, difference_selection, main_difference_selection, main_effect_indices,
       pairwise_effect_indices, target_accept, nuts_max_depth, learn_mass_matrix,
       projection, group_membership, group_indices, interaction_index_matrix,
       inclusion_probability, chain_rngs, update_method_enum, hmc_num_leapfrogs,
@@ -420,7 +430,8 @@ Rcpp::List run_bgmCompare_parallel(
     if (results[i].error) {
       output[i] = Rcpp::List::create(
         Rcpp::Named("error") = results[i].error_msg,
-        Rcpp::Named("chain_id") = results[i].chain_id
+        Rcpp::Named("chain_id") = results[i].chain_id,
+        Rcpp::Named("userInterrupt") = false
       );
     } else {
       const auto& r = results[i].result;

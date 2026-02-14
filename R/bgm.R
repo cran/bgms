@@ -11,7 +11,7 @@
 #' This function models the joint distribution of binary and ordinal variables
 #' using a Markov Random Field, with support for edge selection through Bayesian
 #' variable selection. The statistical foundation of the model is described in
-#' \insertCite{MarsmanVandenBerghHaslbeck_2024;textual}{bgms}, where the ordinal
+#' \insertCite{MarsmanVandenBerghHaslbeck_2025;textual}{bgms}, where the ordinal
 #' MRF model and its Bayesian estimation procedure were first introduced. While
 #' the implementation in \pkg{bgms} has since been extended and updated (e.g.,
 #' alternative priors, parallel chains, HMC/NUTS warmup), it builds on that
@@ -110,8 +110,8 @@
 #'
 #' @section Warmup and Adaptation:
 #'
-#' The warmup procedure in \code{bgm} is based on the multi–stage adaptation
-#' schedule used in Stan \insertCite{stan-manual}{bgms}. Warmup iterations are
+#' The warmup procedure in \code{bgm} uses a multi-stage adaptation
+#' schedule \insertCite{stan-manual}{bgms}. Warmup iterations are
 #' split into several phases:
 #'
 #' \itemize{
@@ -191,6 +191,27 @@
 #' @param pairwise_scale Double. Scale of the Cauchy prior for pairwise
 #'   interaction parameters. Default: \code{2.5}.
 #'
+#' @param standardize Logical. If \code{TRUE}, the Cauchy prior scale for each
+#'   pairwise interaction is adjusted based on the range of response scores.
+#'   Variables with more response categories have larger score products
+#'   \eqn{x_i \cdot x_j}, which typically correspond to smaller interaction
+#'   effects \eqn{\sigma_{ij}}. Without standardization, a fixed prior scale
+#'   is relatively wide for these smaller effects, resulting in less shrinkage
+#'   for high-category pairs and more shrinkage for low-category pairs.
+#'   Standardization scales the prior proportionally to the maximum score
+#'   product, ensuring equivalent relative shrinkage across all pairs.
+#'   After internal recoding, regular ordinal variables have scores
+#'   \eqn{0, 1, \ldots, m}. The adjusted scale for the interaction between
+#'   variables \eqn{i} and \eqn{j} is \code{pairwise_scale * m_i * m_j},
+#'   so that \code{pairwise_scale} itself applies to the unit interval case
+#'   (binary variables where \eqn{m_i = m_j = 1}). For Blume-Capel variables
+#'   with reference category \eqn{b}, scores are centered as
+#'   \eqn{-b, \ldots, m-b}, and the adjustment uses the maximum absolute
+#'   product of the score endpoints. For mixed pairs, ordinal variables use
+#'   raw score endpoints \eqn{(0, m)} and Blume-Capel variables use centered
+#'   score endpoints \eqn{(-b, m-b)}.
+#'   Default: \code{FALSE}.
+#'
 #' @param main_alpha,main_beta Double. Shape parameters of the
 #'   beta-prime prior for threshold parameters. Must be positive. If equal,
 #'   the prior is symmetric. Defaults: \code{main_alpha = 0.5} and
@@ -228,8 +249,15 @@
 #'   \code{"listwise"} (drop rows with missing values) or \code{"impute"}
 #'   (perform single imputation during sampling). Default: \code{"listwise"}.
 #'
-#' @param display_progress Logical. Whether to show a progress bar during
-#'   sampling. Default: \code{TRUE}.
+#' @param display_progress Character. Controls progress reporting during
+#'   sampling. Options: \code{"per-chain"} (separate bar per chain),
+#'   \code{"total"} (single combined bar), or \code{"none"} (no progress).
+#'   Default: \code{"per-chain"}.
+#'
+#' @param verbose Logical. If \code{TRUE}, prints informational messages
+#'   during data processing (e.g., missing data handling, variable recoding).
+#'   Defaults to \code{getOption("bgms.verbose", TRUE)}. Set
+#'   \code{options(bgms.verbose = FALSE)} to suppress messages globally.
 #'
 #' @param update_method Character. Specifies how the MCMC sampler updates
 #'   the model parameters:
@@ -256,7 +284,7 @@
 #'
 #' @param learn_mass_matrix Logical. If \code{TRUE}, adapt a diagonal mass
 #'   matrix during warmup (HMC/NUTS only). If \code{FALSE}, use the identity
-#'   matrix. Default: \code{FALSE}.
+#'   matrix. Default: \code{TRUE}.
 #'
 #' @param chains Integer. Number of parallel chains to run. Default: \code{4}.
 #'
@@ -342,7 +370,7 @@
 #' @examples
 #' \donttest{
 #' # Run bgm on subset of the Wenchuan dataset
-#' fit = bgm(x = Wenchuan[, 1:5])
+#' fit = bgm(x = Wenchuan[, 1:5], chains = 2)
 #'
 #' # Posterior inclusion probabilities
 #' summary(fit)$indicator
@@ -375,17 +403,25 @@ bgm = function(
   target_accept,
   hmc_num_leapfrogs = 100,
   nuts_max_depth = 10,
-  learn_mass_matrix = FALSE,
+  learn_mass_matrix = TRUE,
   chains = 4,
   cores = parallel::detectCores(),
   display_progress = c("per-chain", "total", "none"),
   seed = NULL,
+  standardize = FALSE,
+  verbose = getOption("bgms.verbose", TRUE),
   interaction_scale,
   burnin,
   save,
   threshold_alpha,
   threshold_beta
 ) {
+  # Set verbose option for internal functions, restore on exit
+
+  old_verbose <- getOption("bgms.verbose")
+  options(bgms.verbose = verbose)
+  on.exit(options(bgms.verbose = old_verbose), add = TRUE)
+
   if(hasArg(interaction_scale)) {
     lifecycle::deprecate_warn("0.1.6.0", "bgm(interaction_scale =)", "bgm(pairwise_scale =)")
     if(!hasArg(pairwise_scale)) {
@@ -490,10 +526,27 @@ bgm = function(
   # Check Gibbs input -----------------------------------------------------------
   check_positive_integer(iter, "iter")
   check_non_negative_integer(warmup, "warmup")
-  if(warmup < 1e3) {
-    warning("The warmup parameter is set to a low value. This may lead to unreliable results. Reset to a minimum of 1000 iterations.")
+
+  # Warmup warnings for HMC/NUTS (tiered based on edge_selection)
+  if (verbose && update_method %in% c("hmc", "nuts")) {
+    if (edge_selection) {
+      # For edge_selection models: warmup is split 85%/10%/5% for stages 1-3a/3b/3c
+      if (warmup < 50) {
+        warning("warmup = ", warmup, " is very short for edge selection. Consider >= 300.")
+      } else if (warmup < 200) {
+        warning("warmup = ", warmup, ": proposal SD tuning skipped (needs >= 200). Consider >= 300.")
+      } else if (warmup < 300) {
+        warning("warmup = ", warmup, ": limited proposal SD tuning. Consider >= 300.")
+      }
+    } else {
+      # For models without edge selection: standard warmup warnings
+      if (warmup < 20) {
+        warning("warmup = ", warmup, ": no mass matrix estimation (needs >= 20).")
+      } else if (warmup < 150) {
+        warning("warmup = ", warmup, ": using proportional allocation (needs >= 150 for fixed buffers).")
+      }
+    }
   }
-  warmup = max(warmup, 1e3) # Set minimum warmup to 1000 iterations
 
   check_positive_integer(hmc_num_leapfrogs, "hmc_num_leapfrogs")
   hmc_num_leapfrogs = max(hmc_num_leapfrogs, 1) # Set minimum hmc_num_leapfrogs to 1
@@ -537,7 +590,6 @@ bgm = function(
     nrow = num_variables,
     ncol = num_variables
   )
-
 
   # Starting values of interactions and thresholds (posterior mode) -------------
   interactions = matrix(0, nrow = num_variables, ncol = num_variables)
@@ -592,6 +644,55 @@ bgm = function(
     }
   }
 
+  # Compute pairwise scaling factors for standardized priors --------------------
+  pairwise_scaling_factors = matrix(1, nrow = num_variables, ncol = num_variables)
+  if(standardize) {
+    for(v1 in seq_len(num_variables - 1)) {
+      for(v2 in seq((v1 + 1), num_variables)) {
+        if(variable_bool[v1] && variable_bool[v2]) {
+          # Both ordinal: m_i * m_j (where m is max score, 0...m)
+          pairwise_scaling_factors[v1, v2] = num_categories[v1] * num_categories[v2]
+        } else if(!variable_bool[v1] && !variable_bool[v2]) {
+          # Both Blume-Capel: max of endpoint products
+          b1 = baseline_category[v1]
+          b2 = baseline_category[v2]
+          m1 = num_categories[v1]
+          m2 = num_categories[v2]
+          # Endpoints for centered scores: -b and M-b
+          endpoints1 = c(-b1, m1 - b1)
+          endpoints2 = c(-b2, m2 - b2)
+          all_products = abs(outer(endpoints1, endpoints2))
+          pairwise_scaling_factors[v1, v2] = max(all_products)
+        } else {
+          # Mixed: one ordinal, one Blume-Capel
+          if(variable_bool[v1]) {
+            # v1 is ordinal (range 0 to M1), v2 is Blume-Capel (range -b2 to M2-b2)
+            m1 = num_categories[v1]
+            b2 = baseline_category[v2]
+            m2 = num_categories[v2]
+            endpoints1 = c(0, m1)
+            endpoints2 = c(-b2, m2 - b2)
+          } else {
+            # v1 is Blume-Capel, v2 is ordinal
+            b1 = baseline_category[v1]
+            m1 = num_categories[v1]
+            m2 = num_categories[v2]
+            endpoints1 = c(-b1, m1 - b1)
+            endpoints2 = c(0, m2)
+          }
+          all_products = abs(outer(endpoints1, endpoints2))
+          pairwise_scaling_factors[v1, v2] = max(all_products)
+        }
+        pairwise_scaling_factors[v2, v1] = pairwise_scaling_factors[v1, v2]
+      }
+    }
+  }
+
+  # Add variable names to scaling factors matrix
+  varnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(num_variables)) else colnames(x)
+  rownames(pairwise_scaling_factors) = varnames
+  colnames(pairwise_scaling_factors) = varnames
+
   # Setting the seed
   if(missing(seed) || is.null(seed)) {
     # Draw a random seed if none provided
@@ -625,7 +726,8 @@ bgm = function(
     target_accept = target_accept, pairwise_stats = pairwise_stats,
     hmc_num_leapfrogs = hmc_num_leapfrogs, nuts_max_depth = nuts_max_depth,
     learn_mass_matrix = learn_mass_matrix, num_chains = chains,
-    nThreads = cores, seed = seed, progress_type = progress_type
+    nThreads = cores, seed = seed, progress_type = progress_type,
+    pairwise_scaling_factors = pairwise_scaling_factors
   )
 
   userInterrupt = any(vapply(out, FUN = `[[`, FUN.VALUE = logical(1L), "userInterrupt"))
@@ -637,7 +739,8 @@ bgm = function(
         out = out, x = x, num_categories = num_categories, iter = iter,
         data_columnnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
         is_ordinal_variable = variable_bool,
-        warmup = warmup, pairwise_scale = pairwise_scale,
+        warmup = warmup, pairwise_scale = pairwise_scale, standardize = standardize,
+        pairwise_scaling_factors = pairwise_scaling_factors,
         main_alpha = main_alpha, main_beta = main_beta,
         na_action = na_action, na_impute = na_impute,
         edge_selection = edge_selection, edge_prior = edge_prior, inclusion_probability = inclusion_probability,
@@ -645,6 +748,7 @@ bgm = function(
         beta_bernoulli_alpha_between = beta_bernoulli_alpha_between, beta_bernoulli_beta_between = beta_bernoulli_beta_between,
         dirichlet_alpha = dirichlet_alpha, lambda = lambda,
         variable_type = variable_type,
+        baseline_category = baseline_category,
         update_method = update_method,
         target_accept = target_accept,
         hmc_num_leapfrogs = hmc_num_leapfrogs,
@@ -668,7 +772,8 @@ bgm = function(
     out = out, x = x, num_categories = num_categories, iter = iter,
     data_columnnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
     is_ordinal_variable = variable_bool,
-    warmup = warmup, pairwise_scale = pairwise_scale,
+    warmup = warmup, pairwise_scale = pairwise_scale, standardize = standardize,
+    pairwise_scaling_factors = pairwise_scaling_factors,
     main_alpha = main_alpha, main_beta = main_beta,
     na_action = na_action, na_impute = na_impute,
     edge_selection = edge_selection, edge_prior = edge_prior, inclusion_probability = inclusion_probability,
@@ -678,6 +783,7 @@ bgm = function(
     beta_bernoulli_beta_between = beta_bernoulli_beta_between,
     dirichlet_alpha = dirichlet_alpha, lambda = lambda,
     variable_type = variable_type,
+    baseline_category = baseline_category,
     update_method = update_method,
     target_accept = target_accept,
     hmc_num_leapfrogs = hmc_num_leapfrogs,

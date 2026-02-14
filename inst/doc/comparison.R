@@ -9,17 +9,18 @@ knitr::opts_chunk$set(
 ## -----------------------------------------------------------------------------
 library(bgms)
 
-?Boredom
-data_french = Boredom[Boredom$language == "fr", -1]
-data_french = data_french[, 1:5]
-data_english = Boredom[Boredom$language != "fr", -1]
-data_english = data_english[, 1:5]
-
-## ----include=FALSE------------------------------------------------------------
-fit <- readRDS(system.file("extdata", "fit_boredom.rds", package = "bgms"))
+?ADHD
+data_adhd = ADHD[ADHD$group == 1, -1]
+data_adhd = data_adhd[, 1:5]
+data_no_adhd = ADHD[ADHD$group == 0, -1]
+data_no_adhd = data_no_adhd[, 1:5]
 
 ## ----eval = FALSE-------------------------------------------------------------
-# fit = bgmCompare(x = data_french, y = data_english, seed = 1234)
+# fit = bgmCompare(x = data_adhd, y = data_no_adhd, seed = 1234)
+
+## ----include=FALSE------------------------------------------------------------
+fit = bgmCompare(x = data_adhd, y = data_no_adhd, seed = 1234, chains = 2,
+                 display_progress = "none", verbose = FALSE)
 
 ## -----------------------------------------------------------------------------
 summary(fit)
@@ -30,18 +31,18 @@ coef(fit)
 ## ----fig.width= 7, fig.height= 7----------------------------------------------
 library(qgraph)
 
-french_network = matrix(0, 5, 5)
-french_network[lower.tri(french_network)] = coef(fit)$pairwise_effects_groups[, 1]
-french_network = french_network + t(french_network)
-colnames(french_network) = colnames(data_french)
-rownames(french_network) = colnames(data_french)
+adhd_network = matrix(0, 5, 5)
+adhd_network[lower.tri(adhd_network)] = coef(fit)$pairwise_effects_groups[, 1]
+adhd_network = adhd_network + t(adhd_network)
+colnames(adhd_network) = colnames(data_adhd)
+rownames(adhd_network) = colnames(data_adhd)
 
-qgraph(french_network,
+qgraph(adhd_network,
   theme = "TeamFortress",
   maximum = 1,
   fade = FALSE,
   color = c("#f0ae0e"), vsize = 10, repulsion = .9,
   label.cex = 1, label.scale = "FALSE",
-  labels = colnames(data_french)
+  labels = colnames(data_adhd)
 )
 

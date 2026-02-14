@@ -390,6 +390,7 @@ void update_pairwise_effects_metropolis_bgmcompare (
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const double difference_scale,
     const int iteration,
     RWMAdaptationController& rwm_adapt,
@@ -398,31 +399,78 @@ void update_pairwise_effects_metropolis_bgmcompare (
 ) {
   int num_variables = observations.n_cols;
   int num_pairs = num_variables * (num_variables - 1) / 2;
-  arma::mat accept_prob_pair = arma::zeros<arma::mat>(num_pairs,
-                                                      num_groups);
-  arma::umat index_mask_pair = arma::zeros<arma::umat>(num_pairs,
-                                                       num_groups);
+  arma::mat accept_prob_pair = arma::zeros<arma::mat>(num_pairs, num_groups);
+  arma::umat index_mask_pair = arma::zeros<arma::umat>(num_pairs, num_groups);
 
-  // --- helper for one update ---
+  // --- Build group-specific pairwise matrices and residual matrices ---
+  std::vector<arma::mat> pairwise_groups(num_groups);
+  std::vector<arma::mat> residual_matrices(num_groups);
+  std::vector<arma::mat> obs_double_groups(num_groups);
+
+  for (int g = 0; g < num_groups; ++g) {
+    const int r0 = group_indices(g, 0);
+    const int r1 = group_indices(g, 1);
+    const arma::vec proj_g = projection.row(g).t();
+
+    // Build group-specific pairwise effects matrix
+    arma::mat pairwise_group(num_variables, num_variables, arma::fill::zeros);
+    for (int v = 0; v < num_variables - 1; ++v) {
+      for (int u = v + 1; u < num_variables; ++u) {
+        double w = compute_group_pairwise_effects(
+          v, u, num_groups, pairwise_effects, pairwise_effect_indices,
+          inclusion_indicator, proj_g
+        );
+        pairwise_group(v, u) = w;
+        pairwise_group(u, v) = w;
+      }
+    }
+    pairwise_groups[g] = pairwise_group;
+
+    // Convert observations to double and compute residual matrix
+    obs_double_groups[g] = arma::conv_to<arma::mat>::from(observations.rows(r0, r1));
+    residual_matrices[g] = obs_double_groups[g] * pairwise_group;
+  }
+
+  // --- helper for one update using optimized residual-based function ---
   auto do_update = [&](int var1, int var2, int h) {
     int idx = pairwise_effect_indices(var1, var2);
     index_mask_pair(idx, h) = 1;
-    double& current = pairwise_effects(idx, h);
+    double current = pairwise_effects(idx, h);
     double proposal_sd = proposal_sd_pair(idx, h);
 
     auto log_post = [&](double theta) {
-      pairwise_effects(idx, h) = theta;
+      double delta = theta - current;
       return log_pseudoposterior_pair_component(
         main_effects, pairwise_effects, main_effect_indices,
         pairwise_effect_indices, projection, observations, group_indices,
-        num_categories, pairwise_stats, num_groups,
+        num_categories, pairwise_stats, residual_matrices, num_groups,
         inclusion_indicator, is_ordinal_variable, baseline_category,
-        pairwise_scale, difference_scale, var1, var2, h
+        pairwise_scale, pairwise_scaling_factors, difference_scale, var1, var2, h, delta
       );
     };
 
     SamplerResult result = rwm_sampler(current, proposal_sd, log_post, rng);
-    current = result.state[0];
+    double value = result.state[0];
+
+    // Update residual matrices if move was accepted
+    if (current != value) {
+      double delta = value - current;
+      pairwise_effects(idx, h) = value;
+
+      for (int g = 0; g < num_groups; ++g) {
+        const arma::vec proj_g = projection.row(g).t();
+        double delta_g = (h == 0) ? delta : delta * proj_g(h - 1);
+
+        // Update pairwise_group for this group
+        pairwise_groups[g](var1, var2) += delta_g;
+        pairwise_groups[g](var2, var1) += delta_g;
+
+        // Update residual matrix columns
+        residual_matrices[g].col(var1) += obs_double_groups[g].col(var2) * delta_g;
+        residual_matrices[g].col(var2) += obs_double_groups[g].col(var1) * delta_g;
+      }
+    }
+
     accept_prob_pair(idx, h) = result.accept_prob;
   };
 
@@ -506,6 +554,7 @@ double find_initial_stepsize_bgmcompare(
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const double difference_scale,
     const double main_alpha,
     const double main_beta,
@@ -518,6 +567,9 @@ double find_initial_stepsize_bgmcompare(
   );
   arma::mat current_main = main_effects;
   arma::mat current_pair = pairwise_effects;
+
+  // Pre-convert observations to double once (avoids repeated conversion in gradient evaluations)
+  const arma::mat obs_double = arma::conv_to<arma::mat>::from(observations);
 
   auto index_maps = build_index_maps(
     main_effects, pairwise_effects,
@@ -545,33 +597,34 @@ double find_initial_stepsize_bgmcompare(
 
     return gradient(
       current_main, current_pair, main_effect_indices, pairwise_effect_indices,
-      projection, observations, group_indices, num_categories,
+      projection, obs_double, group_indices, num_categories,
       counts_per_category, blume_capel_stats,
       pairwise_stats, num_groups, inclusion_indicator,
       is_ordinal_variable, baseline_category, main_alpha, main_beta,
-      pairwise_scale, difference_scale, main_index, pair_index,
+      pairwise_scale, pairwise_scaling_factors, difference_scale, main_index, pair_index,
       grad_obs_act
     );
   };
 
-  auto log_post = [&](const arma::vec& theta_vec) {
+  auto joint = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgmcompare(
       theta_vec, current_main, current_pair, inclusion_indicator,
       main_effect_indices, pairwise_effect_indices, num_groups, num_categories,
       is_ordinal_variable
     );
 
-    return log_pseudoposterior(
+    return logp_and_gradient(
       current_main, current_pair, main_effect_indices, pairwise_effect_indices,
-      projection, observations, group_indices, num_categories,
+      projection, obs_double, group_indices, num_categories,
       counts_per_category, blume_capel_stats,
       pairwise_stats, num_groups, inclusion_indicator,
       is_ordinal_variable, baseline_category, main_alpha, main_beta,
-      pairwise_scale, difference_scale
+      pairwise_scale, pairwise_scaling_factors, difference_scale,
+      main_index, pair_index, grad_obs_act
     );
   };
 
-  return heuristic_initial_step_size(theta, log_post, grad, rng, target_acceptance);
+  return heuristic_initial_step_size(theta, grad, joint, rng, target_acceptance);
 }
 
 
@@ -639,6 +692,7 @@ void update_hmc_bgmcompare(
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const double difference_scale,
     const double main_alpha,
     const double main_beta,
@@ -657,6 +711,9 @@ void update_hmc_bgmcompare(
 
   arma::mat current_main = main_effects;
   arma::mat current_pair = pairwise_effects;
+
+  // Pre-convert observations to double once (avoids repeated conversion in gradient evaluations)
+  const arma::mat obs_double = arma::conv_to<arma::mat>::from(observations);
 
   auto index_maps = build_index_maps(
     main_effects, pairwise_effects,
@@ -684,29 +741,30 @@ void update_hmc_bgmcompare(
 
     return gradient(
       current_main, current_pair, main_effect_indices, pairwise_effect_indices,
-      projection, observations, group_indices, num_categories,
+      projection, obs_double, group_indices, num_categories,
       counts_per_category, blume_capel_stats,
       pairwise_stats, num_groups, inclusion_indicator,
       is_ordinal_variable, baseline_category, main_alpha, main_beta,
-      pairwise_scale, difference_scale, main_index, pair_index,
+      pairwise_scale, pairwise_scaling_factors, difference_scale, main_index, pair_index,
       grad_obs_act
     );
   };
 
-  auto log_post = [&](const arma::vec& theta_vec) {
+  auto joint = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgmcompare(
       theta_vec, current_main, current_pair, inclusion_indicator,
       main_effect_indices, pairwise_effect_indices, num_groups, num_categories,
       is_ordinal_variable
     );
 
-    return log_pseudoposterior(
+    return logp_and_gradient(
       current_main, current_pair, main_effect_indices, pairwise_effect_indices,
-      projection, observations, group_indices, num_categories,
+      projection, obs_double, group_indices, num_categories,
       counts_per_category, blume_capel_stats,
       pairwise_stats, num_groups, inclusion_indicator,
       is_ordinal_variable, baseline_category, main_alpha, main_beta,
-      pairwise_scale, difference_scale
+      pairwise_scale, pairwise_scaling_factors, difference_scale,
+      main_index, pair_index, grad_obs_act
     );
   };
 
@@ -718,7 +776,7 @@ void update_hmc_bgmcompare(
   );
 
   SamplerResult result = hmc_sampler(
-    current_state, hmc_adapt.current_step_size(), log_post, grad, num_leapfrogs,
+    current_state, hmc_adapt.current_step_size(), grad, joint, num_leapfrogs,
     active_inv_mass, rng
   );
 
@@ -730,6 +788,23 @@ void update_hmc_bgmcompare(
   );
 
   hmc_adapt.update(current_state, result.accept_prob, iteration);
+
+  // If mass matrix was just updated, re-run the heuristic to find a good
+  // step size for the new mass matrix. Use current step size as starting point.
+  if (hmc_adapt.mass_matrix_just_updated()) {
+    arma::vec new_inv_mass = inv_mass_active(
+      hmc_adapt.inv_mass_diag(), inclusion_indicator, num_groups, num_categories,
+      is_ordinal_variable, main_index, pair_index, main_effect_indices,
+      pairwise_effect_indices, selection
+    );
+    double current_eps = hmc_adapt.current_step_size();
+    double new_eps = heuristic_initial_step_size(
+      current_state, grad, joint, new_inv_mass, rng,
+      0.625,        // target_acceptance
+      current_eps   // init_step: use current step size as starting point
+    );
+    hmc_adapt.reinit_stepsize(new_eps);
+  }
 }
 
 
@@ -796,6 +871,7 @@ SamplerResult update_nuts_bgmcompare(
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const double difference_scale,
     const double main_alpha,
     const double main_beta,
@@ -806,6 +882,9 @@ SamplerResult update_nuts_bgmcompare(
     const bool selection,
     SafeRNG& rng
 ) {
+  // Pre-convert observations to double once (avoids repeated conversion in gradient evaluations)
+  const arma::mat obs_double = arma::conv_to<arma::mat>::from(observations);
+
   arma::vec current_state = vectorize_model_parameters_bgmcompare(
     main_effects, pairwise_effects, inclusion_indicator,
     main_effect_indices, pairwise_effect_indices, num_categories,
@@ -841,29 +920,30 @@ SamplerResult update_nuts_bgmcompare(
 
     return gradient(
       current_main, current_pair, main_effect_indices, pairwise_effect_indices,
-      projection, observations, group_indices, num_categories,
+      projection, obs_double, group_indices, num_categories,
       counts_per_category, blume_capel_stats,
       pairwise_stats, num_groups, inclusion_indicator,
       is_ordinal_variable, baseline_category, main_alpha, main_beta,
-      pairwise_scale, difference_scale, main_index, pair_index,
+      pairwise_scale, pairwise_scaling_factors, difference_scale, main_index, pair_index,
       grad_obs_act
     );
   };
 
-  auto log_post = [&](const arma::vec& theta_vec) {
+  auto joint = [&](const arma::vec& theta_vec) {
     unvectorize_model_parameters_bgmcompare(
       theta_vec, current_main, current_pair, inclusion_indicator,
       main_effect_indices, pairwise_effect_indices, num_groups, num_categories,
       is_ordinal_variable
     );
 
-    return log_pseudoposterior(
+    return logp_and_gradient(
       current_main, current_pair, main_effect_indices, pairwise_effect_indices,
-      projection, observations, group_indices, num_categories,
+      projection, obs_double, group_indices, num_categories,
       counts_per_category, blume_capel_stats,
       pairwise_stats, num_groups, inclusion_indicator,
       is_ordinal_variable, baseline_category, main_alpha, main_beta,
-      pairwise_scale, difference_scale
+      pairwise_scale, pairwise_scaling_factors, difference_scale,
+      main_index, pair_index, grad_obs_act
     );
   };
 
@@ -874,8 +954,8 @@ SamplerResult update_nuts_bgmcompare(
     pairwise_effect_indices, selection
   );
 
-  SamplerResult result = nuts_sampler(
-    current_state, hmc_adapt.current_step_size(), log_post, grad,
+  SamplerResult result = nuts_sampler_joint(
+    current_state, hmc_adapt.current_step_size(), joint,
     active_inv_mass, rng, nuts_max_depth
   );
 
@@ -887,6 +967,23 @@ SamplerResult update_nuts_bgmcompare(
   );
 
   hmc_adapt.update(current_state, result.accept_prob, iteration);
+
+  // If mass matrix was just updated, re-run the heuristic to find a good
+  // step size for the new mass matrix. Use current step size as starting point.
+  if (hmc_adapt.mass_matrix_just_updated()) {
+    arma::vec new_inv_mass = inv_mass_active(
+      hmc_adapt.inv_mass_diag(), inclusion_indicator, num_groups, num_categories,
+      is_ordinal_variable, main_index, pair_index, main_effect_indices,
+      pairwise_effect_indices, selection
+    );
+    double current_eps = hmc_adapt.current_step_size();
+    double new_eps = heuristic_initial_step_size(
+      current_state, grad, joint, new_inv_mass, rng,
+      0.625,        // target_acceptance
+      current_eps   // init_step: use current step size as starting point
+    );
+    hmc_adapt.reinit_stepsize(new_eps);
+  }
 
   return result;
 }
@@ -961,6 +1058,7 @@ void tune_proposal_sd_bgmcompare(
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     double difference_scale,
     double main_alpha,
     double main_beta,
@@ -1045,6 +1143,32 @@ void tune_proposal_sd_bgmcompare(
   }
 
   // --- PAIRWISE EFFECTS ---
+  // Build group-specific pairwise matrices and residual matrices
+  std::vector<arma::mat> pairwise_groups(num_groups);
+  std::vector<arma::mat> residual_matrices(num_groups);
+  std::vector<arma::mat> obs_double_groups(num_groups);
+
+  for (int g = 0; g < num_groups; ++g) {
+    const int r0 = group_indices(g, 0);
+    const int r1 = group_indices(g, 1);
+    const arma::vec proj_g = projection.row(g).t();
+
+    arma::mat pairwise_group(V, V, arma::fill::zeros);
+    for (int v = 0; v < V - 1; ++v) {
+      for (int u = v + 1; u < V; ++u) {
+        double w = compute_group_pairwise_effects(
+          v, u, num_groups, pairwise_effects, pairwise_effect_indices,
+          inclusion_indicator, proj_g
+        );
+        pairwise_group(v, u) = w;
+        pairwise_group(u, v) = w;
+      }
+    }
+    pairwise_groups[g] = pairwise_group;
+    obs_double_groups[g] = arma::conv_to<arma::mat>::from(observations.rows(r0, r1));
+    residual_matrices[g] = obs_double_groups[g] * pairwise_group;
+  }
+
   for (int v1 = 0; v1 < V - 1; ++v1) {
     for (int v2 = v1 + 1; v2 < V; ++v2) {
       int idx = pairwise_effect_indices(v1, v2);
@@ -1056,19 +1180,36 @@ void tune_proposal_sd_bgmcompare(
         double& prop_sd = proposal_sd_pairwise_effects(idx, h);
 
         auto log_post = [&](double theta) {
-          pairwise_effects(idx, h) = theta;
+          double delta = theta - current;
           return log_pseudoposterior_pair_component(
             main_effects, pairwise_effects,
             main_effect_indices, pairwise_effect_indices,
             projection, observations, group_indices,
-            num_categories, pairwise_stats, num_groups,
+            num_categories, pairwise_stats, residual_matrices, num_groups,
             inclusion_indicator, is_ordinal_variable, baseline_category,
-            pairwise_scale, difference_scale, v1, v2, h
+            pairwise_scale, pairwise_scaling_factors, difference_scale, v1, v2, h, delta
           );
         };
 
         SamplerResult result = rwm_sampler(current, prop_sd, log_post, rng);
-        current = result.state[0];
+        double value = result.state[0];
+
+        if (current != value) {
+          double delta = value - current;
+          current = value;
+
+          for (int g = 0; g < num_groups; ++g) {
+            const arma::vec proj_g = projection.row(g).t();
+            double delta_g = (h == 0) ? delta : delta * proj_g(h - 1);
+
+            pairwise_groups[g](v1, v2) += delta_g;
+            pairwise_groups[g](v2, v1) += delta_g;
+
+            residual_matrices[g].col(v1) += obs_double_groups[g].col(v2) * delta_g;
+            residual_matrices[g].col(v2) += obs_double_groups[g].col(v1) * delta_g;
+          }
+        }
+
         prop_sd = update_proposal_sd_with_robbins_monro(
           prop_sd, MY_LOG(result.accept_prob), rm_weight, target_accept
         );
@@ -1145,17 +1286,21 @@ void update_indicator_differences_metropolis_bgmcompare (
     const arma::ivec& baseline_category,
     const arma::mat& proposal_sd_main,
     const double difference_scale,
+    const arma::mat& pairwise_scaling_factors,
     const arma::mat& proposal_sd_pairwise,
     const std::vector<arma::imat>& counts_per_category,
     const std::vector<arma::imat>& blume_capel_stats,
     const std::vector<arma::mat>& pairwise_stats,
+    const bool main_difference_selection,
     SafeRNG& rng
 ) {
   const int num_variables = observations.n_cols;
 
   // --- main effects ---
-  for(int var = 0; var < num_variables; var++) {
-    int start = main_effect_indices(var, 0);
+  // Skip main effect indicator updates if main_difference_selection is disabled
+  if (main_difference_selection) {
+    for(int var = 0; var < num_variables; var++) {
+      int start = main_effect_indices(var, 0);
     int stop = main_effect_indices(var, 1);
 
     arma::mat current_main_effects = main_effects;
@@ -1230,6 +1375,7 @@ void update_indicator_differences_metropolis_bgmcompare (
         proposed_main_effects.rows(start, stop).cols(1, num_groups - 1);
     }
   }
+  } // end if (main_difference_selection)
 
   // --- pairwise effects ---
   const int num_pairwise = index.n_rows;
@@ -1273,11 +1419,12 @@ void update_indicator_differences_metropolis_bgmcompare (
     }
 
     // Add parameter prior contribution
+    const double scaled_difference_scale = difference_scale * pairwise_scaling_factors(var1, var2);
     if(proposed_ind == 1) {
       // Propose to set difference to non-zero
       for(int h = 1; h < num_groups; h++) {
         log_accept += R::dcauchy(
-          proposed_pairwise_effects(int_index, h), 0.0, difference_scale, true
+          proposed_pairwise_effects(int_index, h), 0.0, scaled_difference_scale, true
         );
         log_accept -= R::dnorm(
           proposed_pairwise_effects(int_index, h),
@@ -1290,7 +1437,7 @@ void update_indicator_differences_metropolis_bgmcompare (
       // Propose to set difference to zero
       for(int h = 1; h < num_groups; h++) {
         log_accept -= R::dcauchy(
-          current_pairwise_effects(int_index, h), 0.0, difference_scale, true
+          current_pairwise_effects(int_index, h), 0.0, scaled_difference_scale, true
         );
         log_accept += R::dnorm(
           current_pairwise_effects(int_index, h),
@@ -1380,6 +1527,7 @@ void gibbs_update_step_bgmcompare (
     const arma::imat& observations,
     const arma::ivec& num_categories,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const std::vector<arma::imat>& counts_per_category,
     const std::vector<arma::imat>& blume_capel_stats,
     const double main_alpha,
@@ -1412,14 +1560,15 @@ void gibbs_update_step_bgmcompare (
     const UpdateMethod update_method,
     arma::mat& proposal_sd_main,
     arma::mat& proposal_sd_pair,
-    const arma::imat& index
+    const arma::imat& index,
+    const bool main_difference_selection
 ) {
 
   // Step 0: Initialise random graph structure when edge_selection = TRUE
   if (schedule.selection_enabled(iteration) && iteration == schedule.stage3c_start) {
     initialise_graph_bgmcompare(
       inclusion_indicator, main_effects, pairwise_effects, main_effect_indices,
-      pairwise_effect_indices, inclusion_probability, rng
+      pairwise_effect_indices, inclusion_probability, main_difference_selection, rng
     );
   }
 
@@ -1430,8 +1579,8 @@ void gibbs_update_step_bgmcompare (
         main_effect_indices, pairwise_effect_indices, projection, observations,
         num_groups, group_indices, num_categories, inclusion_indicator,
         is_ordinal_variable, baseline_category, proposal_sd_main,
-        difference_scale, proposal_sd_pair, counts_per_category,
-        blume_capel_stats, pairwise_stats, rng
+        difference_scale, pairwise_scaling_factors, proposal_sd_pair, counts_per_category,
+        blume_capel_stats, pairwise_stats, main_difference_selection, rng
     );
   }
 
@@ -1451,7 +1600,7 @@ void gibbs_update_step_bgmcompare (
         pairwise_effect_indices, inclusion_indicator, projection,
         num_categories, observations, num_groups, group_indices,
         pairwise_stats, is_ordinal_variable, baseline_category,
-        pairwise_scale, difference_scale, iteration, rwm_adapt_pair, rng,
+        pairwise_scale, pairwise_scaling_factors, difference_scale, iteration, rwm_adapt_pair, rng,
         proposal_sd_pair
     );
   } else if (update_method == hamiltonian_mc) {
@@ -1460,7 +1609,7 @@ void gibbs_update_step_bgmcompare (
       pairwise_effect_indices, inclusion_indicator, projection, num_categories,
       observations, num_groups, group_indices, counts_per_category,
       blume_capel_stats, pairwise_stats, is_ordinal_variable,
-      baseline_category, pairwise_scale, difference_scale, main_alpha,
+      baseline_category, pairwise_scale, pairwise_scaling_factors, difference_scale, main_alpha,
       main_beta, hmc_nuts_leapfrogs, iteration, hmc_adapt, learn_mass_matrix,
       schedule.selection_enabled(iteration), rng
     );
@@ -1470,7 +1619,7 @@ void gibbs_update_step_bgmcompare (
       pairwise_effect_indices, inclusion_indicator, projection, num_categories,
       observations, num_groups, group_indices, counts_per_category,
       blume_capel_stats, pairwise_stats, is_ordinal_variable,
-      baseline_category, pairwise_scale, difference_scale, main_alpha,
+      baseline_category, pairwise_scale, pairwise_scaling_factors, difference_scale, main_alpha,
       main_beta, nuts_max_depth, iteration, hmc_adapt, learn_mass_matrix,
       schedule.selection_enabled(iteration), rng
     );
@@ -1492,7 +1641,7 @@ void gibbs_update_step_bgmcompare (
     inclusion_indicator, projection, num_categories, observations, num_groups,
     group_indices, counts_per_category, blume_capel_stats,
     pairwise_stats, is_ordinal_variable, baseline_category, pairwise_scale,
-    difference_scale, main_alpha, main_beta, iteration, rng, schedule
+    pairwise_scaling_factors, difference_scale, main_alpha, main_beta, iteration, rng, schedule
   );
 }
 
@@ -1575,6 +1724,7 @@ bgmCompareOutput run_gibbs_sampler_bgmCompare(
     const double main_alpha,
     const double main_beta,
     const double pairwise_scale,
+    const arma::mat& pairwise_scaling_factors,
     const double difference_scale,
     const double difference_selection_alpha,
     const double difference_selection_beta,
@@ -1586,6 +1736,7 @@ bgmCompareOutput run_gibbs_sampler_bgmCompare(
     const arma::uvec& is_ordinal_variable,
     const arma::ivec& baseline_category,
     const bool difference_selection,
+    const bool main_difference_selection,
     const arma::imat& main_effect_indices,
     const arma::imat& pairwise_effect_indices,
     const double target_accept,
@@ -1644,7 +1795,7 @@ bgmCompareOutput run_gibbs_sampler_bgmCompare(
       pairwise_effect_indices, inclusion_indicator, projection, num_categories,
       observations, num_groups, group_indices, counts_per_category,
       blume_capel_stats, pairwise_stats, is_ordinal_variable,
-      baseline_category, pairwise_scale, difference_scale, main_alpha, main_beta,
+      baseline_category, pairwise_scale, pairwise_scaling_factors, difference_scale, main_alpha, main_beta,
       target_accept, rng
     );
   }
@@ -1696,7 +1847,7 @@ bgmCompareOutput run_gibbs_sampler_bgmCompare(
 
     // Main Gibbs update step for parameters
     gibbs_update_step_bgmcompare (
-        observations, num_categories, pairwise_scale, counts_per_category,
+        observations, num_categories, pairwise_scale, pairwise_scaling_factors, counts_per_category,
         blume_capel_stats, main_alpha, main_beta, inclusion_indicator,
         pairwise_effects, main_effects, is_ordinal_variable, baseline_category,
         iteration, pairwise_effect_indices, pairwise_stats, nuts_max_depth,
@@ -1704,7 +1855,8 @@ bgmCompareOutput run_gibbs_sampler_bgmCompare(
         warmup_schedule, treedepth_samples, divergent_samples, energy_samples,
         main_effect_indices, projection, num_groups, group_indices,
         difference_scale, rng, inclusion_probability, hmc_num_leapfrogs,
-        update_method, proposal_sd_main, proposal_sd_pair, index
+        update_method, proposal_sd_main, proposal_sd_pair, index,
+        main_difference_selection
     );
 
     // --- Update difference probabilities under the prior (if difference selection is active)
@@ -1712,18 +1864,23 @@ bgmCompareOutput run_gibbs_sampler_bgmCompare(
       int sumG = 0;
 
       if (difference_prior == "Beta-Bernoulli") {
-        // Update pairwise inclusion probabilities
+        // Count pairwise inclusion indicators
         for (int i = 0; i < num_variables - 1; ++i) {
           for (int j = i + 1; j < num_variables; ++j) {
             sumG += inclusion_indicator(i, j);
           }
         }
-        for(int i = 0; i < num_variables; i++) {
-          sumG += inclusion_indicator(i, i);
+        // Only count main effect indicators if main_difference_selection is enabled
+        int num_main_selectable = 0;
+        if (main_difference_selection) {
+          for(int i = 0; i < num_variables; i++) {
+            sumG += inclusion_indicator(i, i);
+          }
+          num_main_selectable = num_variables;
         }
         double prob = rbeta(rng,
                             difference_selection_alpha + sumG,
-                            difference_selection_beta + num_pair + num_variables - sumG);
+                            difference_selection_beta + num_pair + num_main_selectable - sumG);
         std::fill(inclusion_probability.begin(), inclusion_probability.end(), prob);
       }
     }
