@@ -24,27 +24,29 @@ the original data used to fit the model.}
 
 \item{variables}{Which variables to predict. Can be:
 \itemize{
-  \item A character vector of variable names
-  \item An integer vector of column indices
-  \item \code{NULL} (default) to predict all variables
+\item A character vector of variable names
+\item An integer vector of column indices
+\item \code{NULL} (default) to predict all variables
 }}
 
 \item{type}{Character string specifying the type of prediction:
 \describe{
-  \item{\code{"probabilities"}}{Return the full conditional probability
-    distribution for each variable and observation.}
-  \item{\code{"response"}}{Return the predicted category (mode of the
-    conditional distribution).}
+\item{\code{"probabilities"}}{Return the full conditional probability
+distribution for each variable and observation.}
+\item{\code{"response"}}{Return the predicted category (mode of the
+conditional distribution).}
 }}
 
 \item{method}{Character string specifying which parameter estimates to use:
 \describe{
-  \item{\code{"posterior-mean"}}{Use posterior mean parameters.}
-  \item{\code{"posterior-sample"}}{Average predictions over posterior draws.}
+\item{\code{"posterior-mean"}}{Use posterior mean parameters.}
+\item{\code{"posterior-sample"}}{Average predictions
+over posterior draws.}
 }}
 
 \item{ndraws}{Number of posterior draws to use when
-\code{method = "posterior-sample"}. If \code{NULL}, uses all available draws.}
+\code{method = "posterior-sample"}. If \code{NULL},
+uses all available draws.}
 
 \item{seed}{Optional random seed for reproducibility when
 \code{method = "posterior-sample"}.}
@@ -52,10 +54,13 @@ the original data used to fit the model.}
 \item{...}{Additional arguments (currently ignored).}
 }
 \value{
+\strong{Ordinal models:}
+
 For \code{type = "probabilities"}: A named list with one element per
 predicted variable. Each element is a matrix with \code{n} rows and
-\code{num_categories + 1} columns containing \eqn{P(X_j = c | X_{-j})}{P(X_j = c | X_-j)} for each
-observation and category.
+\code{num_categories + 1} columns containing
+\eqn{P(X_j = c | X_{-j})}{P(X_j = c | X_-j)}
+for each observation and category.
 
 For \code{type = "response"}: A matrix with \code{n} rows and
 \code{length(variables)} columns containing predicted categories.
@@ -63,33 +68,69 @@ For \code{type = "response"}: A matrix with \code{n} rows and
 When \code{method = "posterior-sample"}, probabilities are averaged over
 posterior draws, and an attribute \code{"sd"} is included containing the
 standard deviation across draws.
+
+\strong{GGM (continuous) models:}
+
+For \code{type = "probabilities"}: A named list with one element per
+predicted variable. Each element is a matrix with \code{n} rows and
+2 columns (\code{"mean"} and \code{"sd"}) containing the conditional
+Gaussian parameters \eqn{E(X_j | X_{-j})}{E(X_j | X_{-j})} and
+\eqn{\text{SD}(X_j | X_{-j})}{SD(X_j | X_{-j})}.
+
+For \code{type = "response"}: A matrix with \code{n} rows and
+\code{length(variables)} columns containing conditional means.
+
+When \code{method = "posterior-sample"}, conditional parameters are
+averaged over posterior draws, and an attribute \code{"sd"} is included.
+
+\strong{Mixed MRF models:}
+
+For mixed models, the return list contains elements for both discrete and
+continuous predicted variables. Discrete variables return probability
+matrices (as in ordinal models); continuous variables return conditional
+mean and SD matrices (as in GGM models).
 }
 \description{
 Computes conditional probability distributions for one or more variables
-given the observed values of other variables in the data.
+given the observed values of other variables in the data. Supports ordinal,
+Blume-Capel, continuous (GGM), and mixed MRF models.
 }
 \details{
 For each observation, the function computes the conditional distribution
 of the target variable(s) given the observed values of all other variables.
 This is the same conditional distribution used internally by the Gibbs
 sampler.
+
+For GGM (continuous) models, the conditional distribution of
+\eqn{X_j | X_{-j}}{X_j | X_{-j}} is Gaussian with mean
+\eqn{-\omega_{jj}^{-1} \sum_{k \neq j}
+\omega_{jk} x_k}{-omega_jj^{-1} sum_{k != j} omega_jk x_k}
+and variance \eqn{\omega_{jj}^{-1}}{omega_jj^{-1}}, where \eqn{\Omega}{Omega}
+is the precision matrix.
 }
 \examples{
 \donttest{
 # Fit a model
-fit <- bgm(x = Wenchuan[, 1:5], chains = 2)
+fit = bgm(x = Wenchuan[, 1:5], chains = 2)
 
 # Compute conditional probabilities for all variables
-probs <- predict(fit, newdata = Wenchuan[1:10, 1:5])
+probs = predict(fit, newdata = Wenchuan[1:10, 1:5])
 
 # Predict the first variable only
-probs_v1 <- predict(fit, newdata = Wenchuan[1:10, 1:5], variables = 1)
+probs_v1 = predict(fit, newdata = Wenchuan[1:10, 1:5], variables = 1)
 
 # Get predicted categories
-pred_class <- predict(fit, newdata = Wenchuan[1:10, 1:5], type = "response")
+pred_class = predict(fit, newdata = Wenchuan[1:10, 1:5], type = "response")
 }
 
 }
 \seealso{
 \code{\link{simulate.bgms}} for generating new data from the model.
+
+Other prediction:
+\code{\link[=predict.bgmCompare]{predict.bgmCompare()}},
+\code{\link[=simulate.bgmCompare]{simulate.bgmCompare()}},
+\code{\link[=simulate.bgms]{simulate.bgms()}},
+\code{\link[=simulate_mrf]{simulate_mrf()}}
 }
+\concept{prediction}

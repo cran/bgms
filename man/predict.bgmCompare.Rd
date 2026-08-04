@@ -26,30 +26,31 @@ prediction (1 to number of groups). Required argument.}
 
 \item{variables}{Which variables to predict. Can be:
 \itemize{
-  \item A character vector of variable names
-  \item An integer vector of column indices
-  \item \code{NULL} (default) to predict all variables
+\item A character vector of variable names
+\item An integer vector of column indices
+\item \code{NULL} (default) to predict all variables
 }}
 
 \item{type}{Character string specifying the type of prediction:
 \describe{
-  \item{\code{"probabilities"}}{Return the full conditional probability
-    distribution for each variable and observation.}
-  \item{\code{"response"}}{Return the predicted category (mode of the
-    conditional distribution).}
+\item{\code{"probabilities"}}{Return the full conditional probability
+distribution for each variable and observation.}
+\item{\code{"response"}}{Return the predicted category (mode of the
+conditional distribution).}
 }}
 
 \item{method}{Character string specifying which parameter estimates to use:
 \describe{
-  \item{\code{"posterior-mean"}}{Use posterior mean parameters.}
+\item{\code{"posterior-mean"}}{Use posterior mean parameters.}
 }}
 
 \item{...}{Additional arguments (currently ignored).}
 }
 \value{
-For \code{type = "probabilities"}: A named list with one element per
-predicted variable. Each element is a matrix with \code{n} rows and
-\code{num_categories + 1} columns containing \eqn{P(X_j = c | X_{-j})}{P(X_j = c | X_-j)}
+For \code{type = "probabilities"}: A named list with one
+element per predicted variable. Each element is a matrix with
+\code{n} rows and \code{num_categories + 1} columns containing
+\eqn{P(X_j = c | X_{-j})}{P(X_j = c | X_-j)}
 for each observation and category.
 
 For \code{type = "response"}: A matrix with \code{n} rows and
@@ -69,19 +70,28 @@ given the observed values of all other variables.
 \examples{
 \donttest{
 # Fit a comparison model
-x <- Boredom[Boredom$language == "fr", 2:6]
-y <- Boredom[Boredom$language != "fr", 2:6]
-fit <- bgmCompare(x, y, chains = 2)
+x = Boredom[Boredom$language == "fr", 2:6]
+y = Boredom[Boredom$language != "fr", 2:6]
+fit = bgmCompare(x, y, chains = 2)
 
 # Predict conditional probabilities using group 1 parameters
-probs_g1 <- predict(fit, newdata = x[1:10, ], group = 1)
+probs_g1 = predict(fit, newdata = x[1:10, ], group = 1)
 
 # Predict responses using group 2 parameters
-pred_g2 <- predict(fit, newdata = y[1:10, ], group = 2, type = "response")
+pred_g2 = predict(fit, newdata = y[1:10, ], group = 2, type = "response")
 }
 
 }
 \seealso{
-\code{\link{predict.bgms}} for predicting from single-group models,
-  \code{\link{simulate.bgmCompare}} for simulating from group-comparison models.
+\code{\link{predict.bgms}} for predicting
+from single-group models,
+\code{\link{simulate.bgmCompare}} for simulating
+from group-comparison models.
+
+Other prediction:
+\code{\link[=predict.bgms]{predict.bgms()}},
+\code{\link[=simulate.bgmCompare]{simulate.bgmCompare()}},
+\code{\link[=simulate.bgms]{simulate.bgms()}},
+\code{\link[=simulate_mrf]{simulate_mrf()}}
 }
+\concept{prediction}

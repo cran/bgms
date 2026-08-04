@@ -1,4 +1,4 @@
-#' Bayesian Estimation and Variable Selection for Group Differences in Markov Random Fields
+#' @title Bayesian Estimation and Variable Selection for Group Differences in Markov Random Fields
 #'
 #' @description
 #' The \code{bgmCompare} function estimates group differences in category
@@ -9,72 +9,78 @@
 #' selection can be applied to identify differences across groups.
 #'
 #' @details
-#' This function extends the ordinal MRF framework
-#' \insertCite{MarsmanVandenBerghHaslbeck_2025;textual}{bgms} to multiple
-#' groups. The basic idea of modeling, analyzing, and testing group
-#' differences in MRFs was introduced in
-#' \insertCite{MarsmanWaldorpSekulovskiHaslbeck_2024;textual}{bgms}, where
-#' two–group comparisons were conducted using adaptive Metropolis sampling.
-#' The present implementation generalizes that approach to more than two
-#' groups and supports additional samplers (HMC and NUTS) with staged warmup
-#' adaptation.
+#' Group-specific parameters are decomposed into a shared baseline plus
+#' group differences that sum to zero. Difference selection uses
+#' spike-and-slab priors (Bernoulli or Beta-Bernoulli). Parameters are
+#' sampled with NUTS (default) or adaptive Metropolis--Hastings, using the
+#' same multi-stage warmup schedule as \code{\link{bgm}}.
 #'
-#' Key components of the model:
+#' Groups are numbered \code{1, 2, ...} in the order they first appear in
+#' \code{group_indicator}, whatever that vector's storage type: the first row's
+#' group is group 1, the first row belonging to some other group is group 2, and
+#' so on. (Note that this is first appearance, not sorted order -- an indicator
+#' reading \code{c("fr", "fr", "en", ...)} makes \code{"fr"} group 1.) With
+#' \code{x} and \code{y} instead, \code{x} is group 1 and \code{y} is group 2.
+#' Every output keys on these numbers, and the extractor column names
+#' (\code{group1}, \code{group2}) stay numeric. The original labels are carried
+#' into the fit and shown on the displays a person reads -- the \code{print} and
+#' \code{summary} headers, plot panel titles, calibration panel titles, and
+#' centrality labels -- so that, for example, group 2 prints as
+#' \code{"group 2 (en)"}. Fits made with earlier versions of \pkg{bgms} carry no
+#' labels and display the bare numbers.
+#'
+#' For full details on model specification, prior choices, and output
+#' interpretation, see the package website at
+#' \url{https://bayesian-graphical-modelling-lab.github.io/bgms-docs/}.
+#'
+#' @section Categories across groups:
+#'
+#' Groups being compared often differ in which categories of an ordinal
+#' variable they actually use --- a clinical group may never give the lowest
+#' answer, a control group never the highest. \code{bgmCompare()} models the
+#' \strong{union} of the categories observed across the groups: a category that
+#' any group uses is kept for all of them. Only a category value that
+#' \emph{no} group uses is dropped, after which the remaining categories are
+#' renumbered contiguously from 0. That renumbering is reported with a
+#' \code{message()}; no category anyone observed is ever merged into another.
+#'
+#' Keeping a category that some group never uses has a consequence worth
+#' knowing. That group contributes no observations to the category, so its
+#' data say nothing about where its threshold for that category lies, and the
+#' estimated difference for that group-by-category combination is determined
+#' by the prior rather than by the data: it will be large and very uncertain,
+#' and it is not evidence of a group difference. An unused \emph{reference}
+#' category goes further: every threshold is measured relative to category 0,
+#' so a group that never used it has no data fixing the level of its threshold
+#' vector at all, and every one of that variable's threshold differences for
+#' that group rests on the prior. \code{bgmCompare()} raises a
+#' \code{warning()} naming every variable, category, and group this affects,
+#' and records the per-group category counts in the fitted object
+#' (\code{extract_arguments(fit)$category_support}) so they can be checked
+#' afterwards. The affected rows are also marked with a \code{*} in the
+#' printed summary; see \code{\link[=summary.bgmCompare]{summary.bgmCompare()}}.
+#' Under \code{main_difference_selection = TRUE} such a cell's difference is
+#' never tested alone: the inclusion indicator is per variable, so the block's
+#' Bayes factor pools the prior-driven cell with the variable's identified
+#' categories (see \code{main_difference_selection}).
+#' Only the category thresholds are affected this way; the
+#' pairwise (edge) parameters and their differences are estimated from all the
+#' data and are not.
+#'
+#' Blume--Capel variables are exempt from all of this. Their two parameters
+#' are functions of the numeric category \emph{score}, so renumbering the
+#' categories would change the model rather than relabel it, and a score no
+#' one happened to observe is still a meaningful point on the scale. Their
+#' categories are therefore always retained exactly as supplied.
 #'
 #' @seealso \code{vignette("comparison", package = "bgms")} for a worked example.
-#'
-#' @section Pairwise Interactions:
-#' For variables \eqn{i} and \eqn{j}, the group-specific interaction is
-#' represented as:
-#' \deqn{\theta_{ij}^{(g)} = \phi_{ij} + \delta_{ij}^{(g)},}
-#' where \eqn{\phi_{ij}} is the baseline effect and
-#' \eqn{\delta_{ij}^{(g)}} are group differences constrained to sum to zero.
-#'
-#' @section Ordinal Variables:
-#' \strong{Regular ordinal variables}: category thresholds are decomposed into a
-#' baseline plus group differences for each category.
-#'
-#' \strong{Blume–Capel variables}: category thresholds are quadratic in the
-#' category index, with both the linear and quadratic terms split into a
-#' baseline plus group differences.
-#'
-#' @section Variable Selection:
-#' When \code{difference_selection = TRUE}, spike-and-slab priors are
-#' applied to difference parameters:
-#' \itemize{
-#'   \item \strong{Bernoulli}: fixed prior inclusion probability.
-#'   \item \strong{Beta–Bernoulli}: inclusion probability given a Beta prior.
-#' }
-#'
-#' @section Sampling Algorithms and Warmup:
-#' Parameters are updated within a Gibbs framework, using the same
-#' sampling algorithms and staged warmup scheme described in
-#' \code{\link{bgm}}:
-#' \itemize{
-#'   \item \strong{Adaptive Metropolis–Hastings}: componentwise random–walk
-#'     proposals with Robbins–Monro adaptation of proposal SDs.
-#'   \item \strong{Hamiltonian Monte Carlo (HMC)}: joint updates with fixed
-#'     leapfrog trajectories; step size and optionally the mass matrix are
-#'     adapted during warmup.
-#'   \item \strong{No–U–Turn Sampler (NUTS)}: an adaptive HMC variant with
-#'     dynamic trajectory lengths; warmup uses the same staged adaptation
-#'     schedule as HMC.
-#' }
-#'
-#' For details on the staged adaptation schedule (fast–slow–fast phases),
-#' see \code{\link{bgm}}. In addition, when
-#' \code{difference_selection = TRUE}, updates of inclusion indicators are
-#' delayed until late warmup. In HMC/NUTS, this appends two extra phases
-#' (Stage-3b and Stage-3c), so that the total number of warmup iterations
-#' exceeds the user-specified \code{warmup}.
-#'
-#' After warmup, adaptation is disabled: step size and mass matrix are fixed
-#' at their learned values, and proposal SDs remain constant.
+#' @family model-fitting
 #'
 #' @param x A data frame or matrix of binary and ordinal responses for
 #'   Group 1. Variables should be coded as nonnegative integers starting at
-#'   0. For ordinal variables, unused categories are collapsed; for
-#'   Blume–Capel variables, all categories are retained.
+#'   0. See the \emph{Categories across groups} section for how the category
+#'   codes of an ordinal variable are treated when the groups do not observe
+#'   the same ones.
 #' @param y Optional data frame or matrix for Group 2 (two-group designs).
 #'   Must have the same variables (columns) as \code{x}.
 #' @param group_indicator Optional integer vector of group memberships for
@@ -82,72 +88,126 @@
 #' @param difference_selection Logical. If \code{TRUE}, spike-and-slab priors
 #'   are applied to difference parameters. Default: \code{TRUE}.
 #' @param main_difference_selection Logical. If \code{TRUE}, apply spike-and-slab
-#'   selection to main effect (threshold) differences. If \code{FALSE}, main
-#'   effect differences are always included (no selection). Since main effects
-#'   are often nuisance parameters and their selection can interfere with
-#'   pairwise selection under the Beta-Bernoulli prior, the default is
-#'   \code{FALSE}. Only used when \code{difference_selection = TRUE}.
+#'   selection to main effect (threshold) differences. Selection is per
+#'   variable, not per category: one indicator gates a variable's entire block
+#'   of category-threshold differences across all group contrasts, so the
+#'   inclusion Bayes factor for a main-effect difference is a block test of
+#'   whether that variable's thresholds differ between groups at all — a
+#'   single category's difference is never selected on its own. If
+#'   \code{FALSE}, main effect differences are always included (no selection).
+#'   Since main effects are often nuisance parameters and their selection can
+#'   interfere with pairwise selection under the Beta-Bernoulli prior, the
+#'   default is \code{FALSE}. Only used when
+#'   \code{difference_selection = TRUE}.
 #' @param variable_type Character vector specifying type of each variable:
 #'   \code{"ordinal"} (default) or \code{"blume-capel"}.
 #' @param baseline_category Integer or vector giving the baseline category
-#'   for Blume–Capel variables.
-#' @param difference_scale Double. Scale of the Cauchy prior for difference
+#'   for Blume--Capel variables.
+#' @param difference_scale Double. Scale of the prior for difference
 #'   parameters. Default: \code{1}.
-#' @param difference_prior Character. Prior for difference inclusion:
-#'   \code{"Bernoulli"} or \code{"Beta-Bernoulli"}. Default: \code{"Bernoulli"}.
-#' @param difference_probability Numeric. Prior inclusion probability for
-#'   differences (Bernoulli prior). Default: \code{0.5}.
+#' @param difference_family Character. Distributional family of the prior on
+#'   difference parameters, one of \code{"Normal"} (default) or \code{"Cauchy"}.
+#'   Governs both the pairwise-interaction differences and the main-effect
+#'   (threshold) differences; under \code{difference_selection = TRUE} it is
+#'   the slab of the spike-and-slab. Independent of \code{interaction_prior},
+#'   which governs the baseline interactions.
+#' @param difference_prior An indicator prior specification object for
+#'   difference selection, created by one of:
+#'   \itemize{
+#'     \item \code{\link{bernoulli_prior}()}: Fixed inclusion probability (default).
+#'     \item \code{\link{beta_bernoulli_prior}()}: Beta-distributed inclusion.
+#'     \item \code{\link{sbm_prior}()}: Stochastic Block Model.
+#'   }
+#'   Legacy character strings \code{"Bernoulli"} and \code{"Beta-Bernoulli"}
+#'   are still accepted but deprecated.
+#'   Default: \code{bernoulli_prior(0.5)}.
+#' @param difference_probability `r lifecycle::badge("deprecated")` Numeric.
+#'   Use \code{difference_prior = bernoulli_prior(probability)} instead.
+#'   Default: \code{0.5}.
+#' @param interaction_prior A prior specification object for baseline pairwise
+#'   interaction parameters, created by one of the prior constructor functions:
+#'   \itemize{
+#'     \item \code{\link{normal_prior}()}: Normal(0, scale) prior (default).
+#'     \item \code{\link{cauchy_prior}()}: Cauchy(0, scale) prior.
+#'   }
+#'   When supplied, overrides \code{pairwise_scale}.
+#'   Default: \code{normal_prior(scale = 1)}, matching \code{\link{bgm}}.
+#'   Governs the baseline pairwise interactions only; the group differences
+#'   are governed by \code{difference_family} and \code{difference_scale}.
+#' @param threshold_prior A prior specification object for threshold (main
+#'   effect) parameters, created by one of the prior constructor functions:
+#'   \itemize{
+#'     \item \code{\link{beta_prime_prior}()}: Beta-prime prior (default).
+#'     \item \code{\link{normal_prior}()}: Normal(0, scale) prior.
+#'   }
+#'   When supplied, overrides \code{main_alpha} and \code{main_beta}.
+#'   Default: \code{beta_prime_prior(alpha = 0.5, beta = 0.5)}.
 #' @param beta_bernoulli_alpha,beta_bernoulli_beta Doubles. Shape parameters
-#'   of the Beta prior for inclusion probabilities in the Beta–Bernoulli
+#'   of the Beta prior for inclusion probabilities in the Beta--Bernoulli
 #'   model. Defaults: \code{1}.
-#' @param pairwise_scale Double. Scale of the Cauchy prior for baseline
-#'   pairwise interactions. Default: \code{2.5}.
-#' @param standardize Logical. If \code{TRUE}, the Cauchy prior scale for each
-#'   pairwise interaction (both baseline and difference) is adjusted based on
-#'   the range of response scores. Without standardization, pairs with more
-#'   response categories experience less shrinkage because their naturally
-#'   smaller interaction effects make a fixed prior relatively wide.
-#'   Standardization equalizes relative shrinkage across all pairs, with
-#'   \code{pairwise_scale} itself applying to the unit interval (binary) case.
-#'   See \code{\link{bgm}} for details on the adjustment. Default: \code{FALSE}.
-#' @param main_alpha,main_beta Doubles. Shape parameters of the beta-prime
-#'   prior for baseline threshold parameters. Defaults: \code{0.5}.
-#' @param iter Integer. Number of post–warmup iterations per chain.
-#'   Default: \code{1e3}.
+#' @param pairwise_scale `r lifecycle::badge("deprecated")` Double. Scale of the
+#'   baseline pairwise interaction prior. Retained for backward compatibility,
+#'   it sets a Cauchy prior at that scale, which is not the current default.
+#'   Use \code{interaction_prior} instead.
+#' @param main_alpha,main_beta `r lifecycle::badge("deprecated")` Doubles. Shape
+#'   parameters of the beta-prime prior for baseline threshold parameters.
+#'   Use \code{threshold_prior = beta_prime_prior(alpha, beta)} instead.
+#' @param iter Integer. Number of post--warmup iterations per chain.
+#'   Default: \code{2e3}.
 #' @param warmup Integer. Number of warmup iterations before sampling.
-#'   Default: \code{1e3}.
+#'   Default: \code{2e3}.
 #' @param na_action Character. How to handle missing data:
 #'   \code{"listwise"} (drop rows) or \code{"impute"} (impute within Gibbs).
 #'   Default: \code{"listwise"}.
 #' @param display_progress Character. Controls progress reporting:
 #'   \code{"per-chain"}, \code{"total"}, or \code{"none"}.
 #'   Default: \code{"per-chain"}.
+#' @param progress_callback An optional R function with signature
+#'   \code{function(completed, total)} that is called at regular intervals
+#'   during sampling, where \code{completed} is the number of iterations
+#'   completed across all chains and \code{total} is the total number of
+#'   iterations. Useful for external front-ends (e.g., JASP) that supply
+#'   their own progress reporting.
+#'   When \code{NULL} (the default), no callback is invoked.
 #' @param verbose Logical. If \code{TRUE}, prints informational messages
 #'   during data processing (e.g., missing data handling, variable recoding).
 #'   Defaults to \code{getOption("bgms.verbose", TRUE)}. Set
 #'   \code{options(bgms.verbose = FALSE)} to suppress messages globally.
 #' @param update_method Character. Sampling algorithm:
-#'   \code{"adaptive-metropolis"}, \code{"hamiltonian-mc"}, or \code{"nuts"}.
-#'   Default: \code{"nuts"}.
+#'   \code{"adaptive-metropolis"} or \code{"nuts"}. Default: \code{"nuts"}.
 #' @param target_accept Numeric between 0 and 1. Target acceptance rate.
-#'   Defaults: 0.44 (Metropolis), 0.65 (HMC), 0.80 (NUTS).
-#' @param hmc_num_leapfrogs Integer. Leapfrog steps for HMC. Default: \code{100}.
+#'   Defaults: 0.44 (Metropolis), 0.80 (NUTS).
 #' @param nuts_max_depth Integer. Maximum tree depth for NUTS. Default: \code{10}.
 #' @param learn_mass_matrix Logical. If \code{TRUE}, adapts a diagonal mass
-#' matrix during warmup (HMC/NUTS only). Default: \code{TRUE}.
+#' matrix during warmup (NUTS only). Default: \code{TRUE}.
 #' @param chains Integer. Number of parallel chains. Default: \code{4}.
 #' @param cores Integer. Number of CPU cores. Default:
 #'   \code{parallel::detectCores()}.
-#' @param seed Optional integer. Random seed for reproducibility.
+#' @param seed Optional integer. Random seed for reproducibility. Results are
+#'   bit-reproducible for a given installed binary: the same seed on the same
+#'   build yields identical draws. They are not portable across compilers or
+#'   optimization settings — a rebuilt binary may produce different draws from
+#'   the same seed, with any differences concentrated where the posterior is
+#'   weakly identified.
 #' @param main_difference_model,reference_category,pairwise_difference_scale,main_difference_scale,pairwise_difference_prior,main_difference_prior,pairwise_difference_probability,main_difference_probability,pairwise_beta_bernoulli_alpha,pairwise_beta_bernoulli_beta,main_beta_bernoulli_alpha,main_beta_bernoulli_beta,interaction_scale,threshold_alpha,threshold_beta,burnin,save
 #'   `r lifecycle::badge("deprecated")`
-#'   Deprecated arguments as of **bgms 0.1.6.0**.
+#'   Deprecated arguments as of \strong{bgms 0.1.6.0}.
 #'   Use `difference_scale`, `difference_prior`, `difference_probability`,
 #'   `beta_bernoulli_alpha`, `beta_bernoulli_beta`, `baseline_category`,
-#'   `pairwise_scale`, and `warmup` instead.
+#'   `interaction_prior`, `threshold_prior`, and `warmup` instead.
+#' @param standardize `r lifecycle::badge("deprecated")` Logical. Deprecated
+#'   as of \strong{bgms 0.2.0.0}. Through 0.1.6.3, \code{TRUE} adjusted each
+#'   pair's baseline and difference prior scale by the product of the two
+#'   variables' maximum scores. Pairwise interactions are now on the
+#'   association scale and share one prior scale, so the per-pair adjustment is
+#'   gone: \code{standardize = FALSE} (the old default) warns and proceeds,
+#'   while \code{standardize = TRUE} errors and points to setting the scales
+#'   directly through \code{interaction_prior} and \code{difference_scale}.
 #' @return
-#' A list of class \code{"bgmCompare"} containing posterior summaries,
-#' posterior mean matrices, and raw MCMC samples:
+#' An S7 object of class \code{bgmCompare} supporting list-style \code{$} /
+#' \code{[[} access for backward compatibility, containing posterior summaries,
+#' posterior mean matrices, and raw MCMC samples. Some
+#' \code{posterior_summary_*} fields are computed lazily on first access:
 #' \itemize{
 #'   \item \code{posterior_summary_main_baseline},
 #'     \code{posterior_summary_pairwise_baseline}: summaries of baseline
@@ -180,7 +240,7 @@
 #' x = Boredom[Boredom$language == "fr", 2:6]
 #' y = Boredom[Boredom$language != "fr", 2:6]
 #'
-#' fit <- bgmCompare(x, y, chains = 2)
+#' fit = bgmCompare(x, y, chains = 2)
 #'
 #' # Posterior inclusion probabilities
 #' summary(fit)$indicator
@@ -202,27 +262,31 @@ bgmCompare = function(
   variable_type = "ordinal",
   baseline_category,
   difference_scale = 1,
-  difference_prior = c("Bernoulli", "Beta-Bernoulli"),
-  difference_probability = 0.5,
-  beta_bernoulli_alpha = 1,
-  beta_bernoulli_beta = 1,
-  pairwise_scale = 2.5,
-  main_alpha = 0.5,
-  main_beta = 0.5,
-  iter = 1e3,
-  warmup = 1e3,
+  difference_family = c("Normal", "Cauchy"),
+  difference_prior = bernoulli_prior(0.5),
+  difference_probability,
+  interaction_prior = normal_prior(scale = 1),
+  threshold_prior = beta_prime_prior(alpha = 0.5, beta = 0.5),
+  iter = 2e3,
+  warmup = 2e3,
   na_action = c("listwise", "impute"),
-  update_method = c("nuts", "adaptive-metropolis", "hamiltonian-mc"),
+  update_method = c("nuts", "adaptive-metropolis"),
   target_accept,
-  hmc_num_leapfrogs = 100,
   nuts_max_depth = 10,
   learn_mass_matrix = TRUE,
   chains = 4,
   cores = parallel::detectCores(),
   display_progress = c("per-chain", "total", "none"),
   seed = NULL,
-  standardize = FALSE,
   verbose = getOption("bgms.verbose", TRUE),
+  progress_callback = NULL,
+  # Deprecated prior arguments
+  pairwise_scale,
+  main_alpha,
+  main_beta,
+  beta_bernoulli_alpha,
+  beta_bernoulli_beta,
+  # Deprecated arguments (v0.1.6.0)
   main_difference_model,
   reference_category,
   main_difference_scale,
@@ -239,12 +303,17 @@ bgmCompare = function(
   threshold_alpha,
   threshold_beta,
   burnin,
-  save
+  save,
+  # Deprecated arguments (v0.2.0.0)
+  standardize
 ) {
   # Set verbose option for internal functions, restore on exit
-  old_verbose <- getOption("bgms.verbose")
+  old_verbose = getOption("bgms.verbose")
   options(bgms.verbose = verbose)
   on.exit(options(bgms.verbose = old_verbose), add = TRUE)
+
+  # bgmCompare supports only NUTS and adaptive-Metropolis.
+  update_method = match.arg(update_method)
 
   if(hasArg(main_difference_model)) {
     lifecycle::deprecate_warn("0.1.6.0", "bgmCompare(main_difference_model =)")
@@ -310,18 +379,49 @@ bgmCompare = function(
   }
 
   if(hasArg(interaction_scale)) {
-    lifecycle::deprecate_warn("0.1.6.0", "bgmCompare(interaction_scale =)", "bgmCompare(pairwise_scale =)")
-    if(!hasArg(pairwise_scale)) pairwise_scale = interaction_scale
+    lifecycle::deprecate_warn(
+      "0.1.6.0", "bgmCompare(interaction_scale =)",
+      "bgmCompare(interaction_prior =)"
+    )
+    if(!hasArg(pairwise_scale) &&
+      identical(interaction_prior, normal_prior(scale = 1))) {
+      interaction_prior = cauchy_prior(scale = interaction_scale)
+    }
+  }
+
+  if(hasArg(pairwise_scale)) {
+    lifecycle::deprecate_warn(
+      "0.2.0", "bgmCompare(pairwise_scale =)",
+      "bgmCompare(interaction_prior =)"
+    )
+    if(identical(interaction_prior, normal_prior(scale = 1))) {
+      interaction_prior = cauchy_prior(scale = pairwise_scale)
+    }
   }
 
   if(hasArg(threshold_alpha) || hasArg(threshold_beta)) {
     lifecycle::deprecate_warn(
       "0.1.6.0",
       "bgmCompare(threshold_alpha =, threshold_beta =)",
-      "bgmCompare(main_alpha =, main_beta =)" # = double-check if these are still part of bgmCompare
+      "bgmCompare(threshold_prior =)"
     )
-    if(!hasArg(main_alpha)) main_alpha = threshold_alpha
-    if(!hasArg(main_beta)) main_beta = threshold_beta
+    if(identical(threshold_prior, beta_prime_prior(0.5, 0.5))) {
+      ta = if(hasArg(threshold_alpha)) threshold_alpha else 0.5
+      tb = if(hasArg(threshold_beta)) threshold_beta else 0.5
+      threshold_prior = beta_prime_prior(alpha = ta, beta = tb)
+    }
+  }
+
+  if(hasArg(main_alpha) || hasArg(main_beta)) {
+    lifecycle::deprecate_warn(
+      "0.2.0", "bgmCompare(main_alpha =)",
+      "bgmCompare(threshold_prior =)"
+    )
+    if(identical(threshold_prior, beta_prime_prior(0.5, 0.5))) {
+      ma = if(hasArg(main_alpha)) main_alpha else 0.5
+      mb = if(hasArg(main_beta)) main_beta else 0.5
+      threshold_prior = beta_prime_prior(alpha = ma, beta = mb)
+    }
   }
 
   if(hasArg(burnin)) {
@@ -333,362 +433,120 @@ bgmCompare = function(
     lifecycle::deprecate_warn("0.1.6.0", "bgmCompare(save =)")
   }
 
-  # Check update method
-  update_method_input = update_method
-  update_method = match.arg(update_method)
+  # --- Legacy deprecation: v0.2.0.0 removals ----------------------------------
+  # standardize scaled each pair's baseline and difference prior by the product
+  # of the two variables' maximum scores. FALSE, its old default, is what the
+  # sampler does now, so it warns and proceeds; TRUE asks for an adjustment that
+  # no longer exists, so it stops with the manual alternative.
+  if(hasArg(standardize)) {
+    if(isFALSE(standardize)) {
+      lifecycle::deprecate_warn(
+        "0.2.0", "bgmCompare(standardize =)",
+        details = paste(
+          "FALSE is what the sampler does, so the fit is unaffected; drop the",
+          "argument."
+        )
+      )
+    } else {
+      lifecycle::deprecate_stop(
+        "0.2.0", "bgmCompare(standardize = 'no longer supports TRUE')",
+        details = paste(
+          "Pairwise interactions are on the association scale and share one",
+          "prior scale, so the per-pair adjustment by the maximum score",
+          "product (scale * m_i * m_j) has been dropped. Set the scales",
+          "directly, e.g. interaction_prior = normal_prior(scale =) for the",
+          "baseline and difference_scale for the differences; there is no",
+          "per-pair equivalent."
+        )
+      )
+    }
+  }
 
-  # Check target acceptance rate
-  if(hasArg(target_accept)) {
-    target_accept = min(target_accept, 1 - sqrt(.Machine$double.eps))
-    target_accept = max(target_accept, 0 + sqrt(.Machine$double.eps))
+  # --- Handle difference_prior: accept both string (deprecated) and object ------
+  if(is.character(difference_prior)) {
+    lifecycle::deprecate_warn(
+      "0.2.0", "bgmCompare(difference_prior = 'must be a prior object')",
+      "bgmCompare(difference_prior = 'bernoulli_prior()')"
+    )
+    difference_prior_str = match.arg(difference_prior,
+      choices = c("Bernoulli", "Beta-Bernoulli", "Stochastic-Block")
+    )
+    dp_prob = if(hasArg(difference_probability)) difference_probability else 0.5
+    bba = if(hasArg(beta_bernoulli_alpha)) beta_bernoulli_alpha else 1
+    bbb = if(hasArg(beta_bernoulli_beta)) beta_bernoulli_beta else 1
+
+    difference_prior = switch(difference_prior_str,
+      "Bernoulli" = bernoulli_prior(inclusion_probability = dp_prob),
+      "Beta-Bernoulli" = beta_bernoulli_prior(alpha = bba, beta = bbb),
+      "Stochastic-Block" = sbm_prior(alpha = bba, beta = bbb)
+    )
   } else {
-    if(update_method == "adaptive-metropolis") {
-      target_accept = 0.44
-    } else if(update_method == "hamiltonian-mc") {
-      target_accept = 0.65
-    } else if(update_method == "nuts") {
-      target_accept = 0.65
+    if(hasArg(difference_probability)) {
+      lifecycle::deprecate_warn(
+        "0.2.0", "bgmCompare(difference_probability =)",
+        "bgmCompare(difference_prior = 'bernoulli_prior()')"
+      )
     }
   }
 
-  # Check and preprocess data
+  # --- Unpack prior objects to flat parameters ---------------------------------
+  ip = unpack_interaction_prior(interaction_prior)
+  tp = unpack_threshold_prior(threshold_prior)
+  difference_family = match.arg(difference_family)
+  difference_prior_type = tolower(difference_family)
+
+  # Unpack difference prior to flat params for bgm_spec. The prior needs the
+  # variable count, so x is validated here rather than left to bgm_spec()
+  # (data_check() is idempotent; the spec runs it again harmlessly).
   x = data_check(x, "x")
-  if(hasArg(y)) {
-    y = data_check(y, "y")
-    if(ncol(x) != ncol(y)) stop("x and y must have the same number of columns.")
-  }
-
-  if(!hasArg(y) & !hasArg(group_indicator)) {
-    stop(paste0(
-      "For multi-group designs, the bgmCompare function requires input for\n",
-      "either y (group 2 data) or group_indicator (group indicator)."
-    ))
-  }
-
-  # Validate group indicators
-  if(!hasArg(y) && hasArg(group_indicator)) {
-    group_indicator = as.vector(group_indicator)
-    if(anyNA(group_indicator)) stop("group_indicator cannot contain missing values.")
-    if(length(group_indicator) != nrow(x)) stop("Length of group_indicator must match number of rows in x.")
-  }
-
-  # Model and preprocessing
-  if(!hasArg(y)) {
-    y = NULL
-  }
-  if(!hasArg(group_indicator)) {
-    group_indicator = NULL
-  }
-
-  model = check_compare_model(
-    x = x, y = y, group_indicator = group_indicator, difference_selection = difference_selection,
-    variable_type = variable_type, baseline_category = baseline_category,
-    difference_scale = difference_scale, difference_prior = difference_prior,
-    difference_probability = difference_probability,
-    beta_bernoulli_alpha = beta_bernoulli_alpha,
-    beta_bernoulli_beta = beta_bernoulli_beta,
-    pairwise_scale = pairwise_scale, main_alpha = main_alpha,
-    main_beta = main_beta
-  )
-
-  x = model$x
-  group = model$group
-  ordinal_variable = model$variable_bool
-  baseline_category = model$baseline_category
-  difference_prior = model$difference_prior
-
-  # Check Gibbs input
-  check_positive_integer(iter, "iter")
-  check_non_negative_integer(warmup, "warmup")
-
-  # Warmup warnings for HMC/NUTS
-  if (verbose && update_method %in% c("hmc", "nuts")) {
-    if (warmup < 20) {
-      warning("warmup = ", warmup, ": no mass matrix estimation (needs >= 20).")
-    } else if (warmup < 150) {
-      warning("warmup = ", warmup, ": using proportional allocation (needs >= 150 for fixed buffers).")
-    }
-  }
-
-  # Check na_action
-  na_action_input = na_action
-  na_action = try(match.arg(na_action), silent = TRUE)
-  if(inherits(na_action, "try-error")) {
-    stop(sprintf("Invalid value for `na_action`. Expected 'listwise' or 'impute', got: %s", na_action_input))
-  }
-
-  # Check display_progress
-  progress_type = progress_type_from_display_progress(display_progress)
-
-
-  ## Format data
-  data = compare_reformat_data(
-    x = x, group = group,
-    na_action = na_action,
-    variable_bool = ordinal_variable,
-    baseline_category = baseline_category
-  )
-
-  x = data$x
-  group = data$group
-  num_obs_groups = tabulate(group)
-  missing_index = data$missing_index
-  num_categories = data$num_categories
-
-  na_impute = data$na_impute
-  baseline_category = data$baseline_category
   num_variables = ncol(x)
-  num_interactions = num_variables * (num_variables - 1) / 2
+  dp = unpack_indicator_prior(difference_prior, num_variables)
 
-  # Compute `counts_per_category`
-  counts_per_category = compute_counts_per_category(
-    x, num_categories, group
-  )
-
-  # Compute sufficient statistics for Blume-Capel variables
-  blume_capel_stats = compute_blume_capel_stats(
-    x, baseline_category, ordinal_variable, group
-  )
-  for (i in which(!ordinal_variable)) {
-    x[, i] = x[, i] - baseline_category[i]
-  }
-
-  # Compute sufficient statistics for pairwise interactions
-  pairwise_stats = compute_pairwise_stats(
-    x, group
-  )
-
-  # Index vector used to sample interactions in a random order -----------------
-  Index = matrix(0, nrow = num_interactions, ncol = 3)
-  counter = 0
-  for(variable1 in 1:(num_variables - 1)) {
-    for(variable2 in (variable1 + 1):num_variables) {
-      counter = counter + 1
-      Index[counter, ] = c(counter, variable1 - 1, variable2 - 1)
-    }
-  }
-
-  # Gibbs sampling
-  # Prepare indices for main and pairwise effects
-  main_effect_indices = matrix(NA, nrow = num_variables, ncol = 2)
-  for(variable in seq_len(num_variables)) {
-    if(variable > 1) {
-      main_effect_indices[variable, 1] = 1 + main_effect_indices[variable - 1, 2]
-    } else {
-      main_effect_indices[variable, 1] = 0 # C++ starts at zero
-    }
-    if(ordinal_variable[variable]) {
-      main_effect_indices[variable, 2] = main_effect_indices[variable, 1] + num_categories[variable] - 1
-    } else {
-      main_effect_indices[variable, 2] = main_effect_indices[variable, 1] + 1
-    }
-  }
-
-  pairwise_effect_indices = matrix(NA, nrow = num_variables, ncol = num_variables)
-  tel = 0
-  for(v1 in seq_len(num_variables - 1)) {
-    for(v2 in seq((v1 + 1), num_variables)) {
-      pairwise_effect_indices[v1, v2] = tel
-      pairwise_effect_indices[v2, v1] = tel
-      tel = tel + 1 # C++ starts at zero
-    }
-  }
-
-  # Compute pairwise scaling factors for standardized priors --------------------
-  pairwise_scaling_factors = matrix(1, nrow = num_variables, ncol = num_variables)
-  if(standardize) {
-    for(v1 in seq_len(num_variables - 1)) {
-      for(v2 in seq((v1 + 1), num_variables)) {
-        if(ordinal_variable[v1] && ordinal_variable[v2]) {
-          # Both ordinal: M_i * M_j
-          pairwise_scaling_factors[v1, v2] = num_categories[v1] * num_categories[v2]
-        } else if(!ordinal_variable[v1] && !ordinal_variable[v2]) {
-          # Both Blume-Capel: max of endpoint products
-          b1 = baseline_category[v1]
-          b2 = baseline_category[v2]
-          m1 = num_categories[v1]
-          m2 = num_categories[v2]
-          endpoints1 = c(-b1, m1 - b1)
-          endpoints2 = c(-b2, m2 - b2)
-          all_products = abs(outer(endpoints1, endpoints2))
-          pairwise_scaling_factors[v1, v2] = max(all_products)
-        } else {
-          # Mixed: one ordinal, one Blume-Capel
-          if(ordinal_variable[v1]) {
-            m1 = num_categories[v1]
-            b2 = baseline_category[v2]
-            m2 = num_categories[v2]
-            endpoints1 = c(0, m1)
-            endpoints2 = c(-b2, m2 - b2)
-          } else {
-            b1 = baseline_category[v1]
-            m1 = num_categories[v1]
-            m2 = num_categories[v2]
-            endpoints1 = c(-b1, m1 - b1)
-            endpoints2 = c(0, m2)
-          }
-          all_products = abs(outer(endpoints1, endpoints2))
-          pairwise_scaling_factors[v1, v2] = max(all_products)
-        }
-        pairwise_scaling_factors[v2, v1] = pairwise_scaling_factors[v1, v2]
-      }
-    }
-  }
-
-  # Add variable names to scaling factors matrix
-  varnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(num_variables)) else colnames(x)
-  rownames(pairwise_scaling_factors) = varnames
-  colnames(pairwise_scaling_factors) = varnames
-
-  # Compute group-level data
-  num_groups = length(unique(group))
-  group_indices = matrix(NA, nrow = num_groups, ncol = 2)
-
-  # Align observations with sorted group
-  observations = x
-  sorted_group = sort(group)
-  for(g in unique(group)) {
-    observations[which(sorted_group == g), ] = x[which(group == g), ]
-    group_indices[g, 1] = min(which(sorted_group == g)) - 1 # C++ starts at zero
-    group_indices[g, 2] = max(which(sorted_group == g)) - 1 # C++ starts at zero
-  }
-
-  # Compute projection matrix for group differences
-  one = matrix(1, nrow = num_groups, ncol = num_groups)
-  V = diag(num_groups) - one / num_groups
-  projection = eigen(V)$vectors[, -num_groups]
-  if(num_groups == 2) {
-    projection = matrix(projection, ncol = 1) / sqrt(2)
-  }
-
-  # Setting the seed
-  if(missing(seed) || is.null(seed)) {
-    # Draw a random seed if none provided
-    seed = sample.int(.Machine$integer.max, 1)
-  }
-
-  if(!is.numeric(seed) || length(seed) != 1 || is.na(seed) || seed < 0) {
-    stop("Argument 'seed' must be a single non-negative integer.")
-  }
-
-  seed <- as.integer(seed)
-
-  # Call the Rcpp function
-  out = run_bgmCompare_parallel(
-    observations = observations,
-    num_groups = num_groups,
-    counts_per_category = counts_per_category,
-    blume_capel_stats = blume_capel_stats,
-    pairwise_stats = pairwise_stats,
-    num_categories = num_categories,
-    main_alpha = main_alpha,
-    main_beta = main_beta,
-    pairwise_scale = pairwise_scale,
-    pairwise_scaling_factors = pairwise_scaling_factors,
-    difference_scale = difference_scale,
-    difference_selection_alpha = beta_bernoulli_alpha,
-    difference_selection_beta = beta_bernoulli_beta,
-    difference_prior = model$difference_prior, iter = iter, warmup = warmup,
-    na_impute = na_impute, missing_data_indices = missing_index,
-    is_ordinal_variable = ordinal_variable,
-    baseline_category = baseline_category,
+  # --- Build spec, sample, build output ----------------------------------------
+  spec = bgm_spec(
+    x = x,
+    model_type = "compare",
+    variable_type = variable_type,
+    baseline_category = if(hasArg(baseline_category)) baseline_category else NULL,
+    y = if(hasArg(y)) y else NULL,
+    group_indicator = if(hasArg(group_indicator)) group_indicator else NULL,
+    na_action = na_action,
+    interaction_prior_type = ip$interaction_prior_type,
+    pairwise_scale = ip$pairwise_scale,
+    interaction_alpha = ip$interaction_alpha,
+    interaction_beta = ip$interaction_beta,
+    threshold_prior_type = tp$threshold_prior_type,
+    main_alpha = tp$main_alpha,
+    main_beta = tp$main_beta,
+    threshold_scale = tp$threshold_scale,
     difference_selection = difference_selection,
     main_difference_selection = main_difference_selection,
-    main_effect_indices = main_effect_indices,
-    pairwise_effect_indices = pairwise_effect_indices,
-    target_accept = target_accept,
-    nuts_max_depth = nuts_max_depth,
-    learn_mass_matrix = learn_mass_matrix,
-    projection = projection,
-    group_membership = sorted_group - 1,
-    group_indices = group_indices,
-    interaction_index_matrix = Index,
-    inclusion_probability = model$inclusion_probability_difference,
-    num_chains = chains, nThreads = cores,
-    seed = seed,
-    update_method = update_method, hmc_num_leapfrogs = hmc_num_leapfrogs,
-    progress_type = progress_type
-  )
-
-  userInterrupt = any(vapply(out, FUN = `[[`, FUN.VALUE = logical(1L), "userInterrupt"))
-  if(userInterrupt) {
-    warning("Stopped sampling after user interrupt, results are likely uninterpretable.")
-    output <- tryCatch(
-      prepare_output_bgmCompare(
-        out = out,
-        observations = observations,
-        num_categories = num_categories,
-        is_ordinal_variable = ordinal_variable,
-        num_groups = num_groups,
-        group = sorted_group,
-        iter = iter,
-        warmup = warmup,
-        main_effect_indices = main_effect_indices,
-        pairwise_effect_indices = pairwise_effect_indices,
-        data_columnnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
-        difference_selection = difference_selection,
-        main_difference_selection = main_difference_selection,
-        difference_prior = difference_prior,
-        difference_selection_alpha = beta_bernoulli_alpha,
-        difference_selection_beta = beta_bernoulli_beta,
-        inclusion_probability = model$inclusion_probability_difference,
-        pairwise_scale = pairwise_scale,
-        difference_scale = difference_scale,
-        standardize = standardize,
-        pairwise_scaling_factors = pairwise_scaling_factors,
-        update_method = update_method,
-        target_accept = target_accept,
-        nuts_max_depth = nuts_max_depth,
-        hmc_num_leapfrogs = hmc_num_leapfrogs,
-        learn_mass_matrix = learn_mass_matrix,
-        num_chains = chains,
-        projection = projection
-      ),
-      error = function(e) {
-        list(partial = out, error = conditionMessage(e))
-      },
-      warning = function(w) {
-        list(partial = out, warning = conditionMessage(w))
-      }
-    )
-    return(output)
-  }
-
-  # Main output handler in the wrapper function
-  output = prepare_output_bgmCompare(
-    out = out,
-    observations = observations,
-    num_categories = num_categories,
-    is_ordinal_variable = ordinal_variable,
-    num_groups = num_groups,
-    group = sorted_group,
+    difference_prior = dp$edge_prior,
+    difference_scale = difference_scale,
+    difference_prior_type = difference_prior_type,
+    difference_probability = dp$inclusion_probability,
+    beta_bernoulli_alpha = dp$beta_bernoulli_alpha,
+    beta_bernoulli_beta = dp$beta_bernoulli_beta,
+    difference_beta_bernoulli_alpha_between = dp$beta_bernoulli_alpha_between,
+    difference_beta_bernoulli_beta_between = dp$beta_bernoulli_beta_between,
+    difference_dirichlet_alpha = dp$dirichlet_alpha,
+    difference_lambda = dp$lambda,
+    update_method = update_method,
+    target_accept = if(hasArg(target_accept)) target_accept else NULL,
     iter = iter,
     warmup = warmup,
-    main_effect_indices = main_effect_indices,
-    pairwise_effect_indices = pairwise_effect_indices,
-    data_columnnames = if(is.null(colnames(x))) paste0("Variable ", seq_len(ncol(x))) else colnames(x),
-    difference_selection = difference_selection,
-    main_difference_selection = main_difference_selection,
-    difference_prior = difference_prior,
-    difference_selection_alpha = beta_bernoulli_alpha,
-    difference_selection_beta = beta_bernoulli_beta,
-    inclusion_probability = model$inclusion_probability_difference,
-    pairwise_scale = pairwise_scale,
-    difference_scale = difference_scale,
-    standardize = standardize,
-    pairwise_scaling_factors = pairwise_scaling_factors,
-    update_method = update_method,
-    target_accept = target_accept,
     nuts_max_depth = nuts_max_depth,
-    hmc_num_leapfrogs = hmc_num_leapfrogs,
     learn_mass_matrix = learn_mass_matrix,
-    num_chains = chains, projection = projection
+    chains = chains,
+    cores = cores,
+    seed = seed,
+    display_progress = display_progress,
+    verbose = verbose,
+    progress_callback = progress_callback
   )
 
-  if(update_method == "nuts") {
-    nuts_diag = summarize_nuts_diagnostics(out, nuts_max_depth = nuts_max_depth)
-    output$nuts_diag = nuts_diag
-  }
+  raw = run_sampler(spec)
+  output = build_output(spec, raw)
 
   return(output)
 }

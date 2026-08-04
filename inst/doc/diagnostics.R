@@ -19,17 +19,26 @@ fit = bgm(data, seed = 1234, chains = 2, display_progress = "none", verbose = FA
 ## -----------------------------------------------------------------------------
 summary(fit)$pairwise
 
+## -----------------------------------------------------------------------------
+summary(fit)$indicator
+
 ## ----fig.width= 7, fig.height= 7----------------------------------------------
-library(coda)
-
 param_index = 1
-chains = lapply(fit$raw_samples$pairwise, function(mat) mat[, param_index])
-mcmc_obj = mcmc.list(lapply(chains, mcmc))
+chains = fit$raw_samples$pairwise
+nchains = length(chains)
+cols = c("firebrick", "steelblue", "darkgreen", "goldenrod")
 
-traceplot(mcmc_obj,
-  col = c("firebrick", "steelblue", "darkgreen", "goldenrod"),
-  main = "Traceplot of pairwise[1]"
+plot(chains[[1]][, param_index],
+  type = "l", col = cols[1],
+  xlab = "Iteration", ylab = "Value",
+  main = "Traceplot of pairwise[1]",
+  ylim = range(sapply(chains, function(ch) range(ch[, param_index])))
 )
+if(nchains > 1) {
+  for(c in 2:nchains) {
+    lines(chains[[c]][, param_index], col = cols[c])
+  }
+}
 
 ## -----------------------------------------------------------------------------
 coef(fit)$indicator
@@ -42,4 +51,10 @@ BF_10
 
 ## -----------------------------------------------------------------------------
 1 / BF_10
+
+## -----------------------------------------------------------------------------
+fit$nuts_diag$summary
+
+## -----------------------------------------------------------------------------
+fit$nuts_diag$warmup_check
 

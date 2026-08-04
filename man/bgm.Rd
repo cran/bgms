@@ -8,98 +8,288 @@ bgm(
   x,
   variable_type = "ordinal",
   baseline_category,
-  iter = 1000,
-  warmup = 1000,
-  pairwise_scale = 2.5,
-  main_alpha = 0.5,
-  main_beta = 0.5,
+  iter = 2000,
+  warmup = 2000,
+  interaction_prior = normal_prior(scale = 1),
+  threshold_prior = beta_prime_prior(alpha = 0.5, beta = 0.5),
+  means_prior = normal_prior(scale = 1),
+  precision_scale_prior = exponential_prior(eta = 1),
+  delta = NULL,
   edge_selection = TRUE,
-  edge_prior = c("Bernoulli", "Beta-Bernoulli", "Stochastic-Block"),
-  inclusion_probability = 0.5,
-  beta_bernoulli_alpha = 1,
-  beta_bernoulli_beta = 1,
-  beta_bernoulli_alpha_between = 1,
-  beta_bernoulli_beta_between = 1,
-  dirichlet_alpha = 1,
-  lambda = 1,
+  edge_prior = bernoulli_prior(0.5),
+  precision_graph_prior = c("hierarchical", "joint"),
   na_action = c("listwise", "impute"),
-  update_method = c("nuts", "adaptive-metropolis", "hamiltonian-mc"),
+  update_method = c("nuts", "adaptive-metropolis", "gibbs"),
   target_accept,
-  hmc_num_leapfrogs = 100,
   nuts_max_depth = 10,
   learn_mass_matrix = TRUE,
   chains = 4,
   cores = parallel::detectCores(),
   display_progress = c("per-chain", "total", "none"),
   seed = NULL,
-  standardize = FALSE,
   verbose = getOption("bgms.verbose", TRUE),
+  progress_callback = NULL,
+  pairwise_scale,
+  main_alpha,
+  main_beta,
+  inclusion_probability,
+  beta_bernoulli_alpha,
+  beta_bernoulli_beta,
+  beta_bernoulli_alpha_between,
+  beta_bernoulli_beta_between,
+  dirichlet_alpha,
+  lambda,
   interaction_scale,
   burnin,
   save,
   threshold_alpha,
-  threshold_beta
+  threshold_beta,
+  standardize
 )
 }
 \arguments{
-\item{x}{A data frame or matrix with \code{n} rows and \code{p} columns
-containing binary and ordinal responses. Variables are automatically
-recoded to non-negative integers (\code{0, 1, ..., m}). For regular
-ordinal variables, unobserved categories are collapsed; for
-Blume–Capel variables, all categories are retained.}
+\item{x}{A data frame or matrix with \code{n} rows and \code{p} columns.
+Columns may contain binary, ordinal, or continuous variables (see
+\code{variable_type}). Discrete variables are automatically recoded to
+non-negative integers (\code{0, 1, ..., m}); for regular ordinal
+variables, unobserved categories are collapsed, while Blume--Capel
+variables retain all categories. Continuous variables are column-centered
+internally so that the GGM likelihood is formulated with a zero-mean
+assumption.}
 
 \item{variable_type}{Character or character vector. Specifies the type of
-each variable in \code{x}. Allowed values: \code{"ordinal"} or
-\code{"blume-capel"}. Binary variables are automatically treated as
+each variable in \code{x}. Allowed values: \code{"ordinal"},
+\code{"blume-capel"}, or \code{"continuous"}. A single string applies
+to all variables. A per-variable vector that mixes discrete
+(\code{"ordinal"} / \code{"blume-capel"}) and \code{"continuous"}
+types fits a mixed MRF. Binary variables are automatically treated as
 \code{"ordinal"}. Default: \code{"ordinal"}.}
 
 \item{baseline_category}{Integer or vector. Baseline category used in
-Blume–Capel variables. Can be a single integer (applied to all) or a
+Blume--Capel variables. Can be a single integer (applied to all) or a
 vector of length \code{p}. Required if at least one variable is of type
 \code{"blume-capel"}.}
 
-\item{iter}{Integer. Number of post–burn-in iterations (per chain).
-Default: \code{1e3}.}
+\item{iter}{Integer. Number of post--burn-in iterations (per chain).
+Default: \code{2e3}.}
 
 \item{warmup}{Integer. Number of warmup iterations before collecting
-samples. A minimum of 1000 iterations is enforced, with a warning if a
-smaller value is requested. Default: \code{1e3}.}
+samples. Short warmups trigger progressive warnings (NUTS only); see
+\code{validate_sampler()} for the thresholds. With
+\code{update_method = "gibbs"} and edge selection, the first 15\\% of
+the warmup runs the full model (all edges included) so the precision
+matrix settles, and edge selection is active for the remaining 85\\%;
+both windows scale with the warmup budget. Default: \code{2e3}.}
 
-\item{pairwise_scale}{Double. Scale of the Cauchy prior for pairwise
-interaction parameters. Default: \code{2.5}.}
+\item{interaction_prior}{A prior specification object for pairwise
+interaction parameters, created by one of the prior constructor functions:
+\itemize{
+\item \code{\link{normal_prior}()}: Normal(0, scale) prior (default).
+\item \code{\link{cauchy_prior}()}: Cauchy(0, scale) prior.
+\item \code{\link{beta_prime_prior}()}: Beta-prime prior.
+}
+Default: \code{normal_prior(scale = 1)}.}
 
-\item{main_alpha, main_beta}{Double. Shape parameters of the
-beta-prime prior for threshold parameters. Must be positive. If equal,
-the prior is symmetric. Defaults: \code{main_alpha = 0.5} and
-\code{main_beta = 0.5}.}
+\item{threshold_prior}{A prior specification object for threshold (main
+effect) parameters, created by one of the prior constructor functions:
+\itemize{
+\item \code{\link{beta_prime_prior}()}: Beta-prime prior (default).
+\item \code{\link{cauchy_prior}()}: Cauchy(0, scale) prior.
+\item \code{\link{normal_prior}()}: Normal(0, scale) prior.
+}
+Default: \code{beta_prime_prior(alpha = 0.5, beta = 0.5)}.}
+
+\item{means_prior}{A prior specification object for continuous variable
+means (mixed MRF models only), created by one of the prior constructor
+functions:
+\itemize{
+\item \code{\link{normal_prior}()}: Normal(0, scale) prior (default).
+\item \code{\link{cauchy_prior}()}: Cauchy(0, scale) prior.
+\item \code{\link{beta_prime_prior}()}: Beta-prime prior.
+}
+Only used when the model includes continuous variables. Ignored for
+pure ordinal or pure continuous (GGM) models.
+Default: \code{normal_prior(scale = 1)}.}
+
+\item{precision_scale_prior}{A prior specification object for the diagonal
+elements of the precision matrix, created by one of:
+\itemize{
+\item \code{\link{exponential_prior}()}: Exponential prior (default).
+\item \code{\link{gamma_prior}()}: Gamma prior.
+}
+Both constructors accept the rate in one of two frames: \code{rate}
+(raw) or \code{eta} (standardized). \code{eta} is the rate on the
+diagonal in the standardized frame, the coordinate in which the
+pairwise (slab) prior has unit scale; it fixes the scale of the
+diagonal relative to the slab, and the raw rate is derived at fit time
+as \code{eta / s}, where \code{s} is the scale of the
+\code{interaction_prior}. At fixed \code{eta}, graph and
+partial-correlation inference is invariant to the slab scale, so the
+standardized frame keeps the prior geometry fixed when the slab scale
+changes. It requires an \code{interaction_prior} with a scale
+parameter (\code{cauchy_prior()} or \code{normal_prior()}).
+Only used for models with continuous variables (GGM and mixed MRF).
+Ignored for pure ordinal models.
+Default: \code{exponential_prior(eta = 1)}.}
+
+\item{delta}{Non-negative numeric, or \code{NULL} for the dimension-
+adaptive default. Determinant-tilt exponent on the continuous-block
+precision matrix \eqn{K} (GGM) or \eqn{K_{yy}} (mixed MRF):
+multiplies the prior by \eqn{|K|^{\delta}}, softly repelling the
+chain from the positive-definite cone boundary. \code{delta = NULL}
+(default) auto-resolves to \eqn{0.5 \log(p)} where \eqn{p} is the
+dimension of the continuous precision matrix (the number of
+variables for GGM, the number of continuous variables for mixed
+MRF). The rule is the simple form of the dimension-adaptive scaling
+\eqn{\delta(p) = c \log p} with \eqn{c \in (0.3, 0.6)}
+(Marsman et al., in preparation). Pass \code{delta = 0} for the
+untilted prior or a non-negative
+numeric to override. Both NUTS and adaptive-Metropolis update paths
+apply the tilt. Not allowed for pure ordinal models (no precision
+matrix to tilt).}
 
 \item{edge_selection}{Logical. Whether to perform Bayesian edge selection.
 If \code{FALSE}, the model estimates all edges. Default: \code{TRUE}.}
 
-\item{edge_prior}{Character. Specifies the prior for edge inclusion.
-Options: \code{"Bernoulli"}, \code{"Beta-Bernoulli"}, or
-\code{"Stochastic-Block"}. Default: \code{"Bernoulli"}.}
+\item{edge_prior}{An edge prior specification object, or a character string
+(deprecated). Specifies the prior for edge inclusion.
+Preferred: pass an object from one of:
+\itemize{
+\item \code{\link{bernoulli_prior}()}: Fixed inclusion probability (default).
+\item \code{\link{beta_bernoulli_prior}()}: Beta-distributed inclusion.
+\item \code{\link{sbm_prior}()}: Stochastic Block Model.
+}
+Legacy character strings \code{"Bernoulli"}, \code{"Beta-Bernoulli"},
+\code{"Stochastic-Block"} are still accepted but deprecated.
+Default: \code{bernoulli_prior(0.5)}.
 
-\item{inclusion_probability}{Numeric scalar. Prior inclusion probability
-of each edge (used with the Bernoulli prior). Default: \code{0.5}.}
+For continuous (GGM) and mixed models with \code{beta_bernoulli_prior()}
+or \code{sbm_prior()} under \code{precision_graph_prior = "joint"}, the
+hyperparameter updates carry a
+normalizing-constant correction: under the determinant-tilted precision
+prior, the plain conjugate updates target the wrong marginals for the
+inclusion probability and the block structure. In mixed models the tilt
+acts on the continuous precision block, so the table is built for the
+continuous variables and the block-structure corrections read
+continuous-continuous edges only; with fewer than two continuous
+variables no edge is tilted and the plain conjugate updates apply
+unchanged. The correction table is built from the prior distribution at
+the first fit of a model configuration (a one-time cost of the order of
+minutes, announced when \code{verbose = TRUE}) and cached on disk via
+\code{tools::R_user_dir("bgms", "cache")}, so later fits of the same
+configuration skip the build. The default
+\code{precision_graph_prior = "hierarchical"} tracks the normalizer in the
+edge moves instead, so it needs no correction table and builds none.
+With \code{beta_bernoulli_prior()} the
+sampled inclusion probability is returned per chain in
+\code{fit$inclusion_parameter_samples}.}
 
-\item{beta_bernoulli_alpha, beta_bernoulli_beta}{Double. Shape parameters
-for the beta distribution in the Beta–Bernoulli and the Stochastic-Block
-priors. Must be positive. For the Stochastic-Block prior these are the shape
-parameters for the within-cluster edge inclusion probabilities.
-Defaults: \code{beta_bernoulli_alpha = 1} and \code{beta_bernoulli_beta = 1}.}
+\item{precision_graph_prior}{Character. How the precision prior composes with
+the edge prior under edge selection for continuous (GGM) data:
+\describe{
+\item{"joint"}{The un-normalised joint specification
+\eqn{p(K, \Gamma) \propto \mathrm{slab}(K) \cdot \mathrm{diag}(K)
+      \cdot |K|^{\delta} \cdot \mathbf{1}\{K \in \mathcal{M}^{+}(\Gamma)\}
+      \cdot \pi(\Gamma)}. The graph marginal is \eqn{\pi(\Gamma) \cdot
+      Z(\Gamma)}; with \code{beta_bernoulli_prior()} or
+\code{sbm_prior()} the hyperparameter updates carry the
+normalizing-constant correction described under
+\code{edge_prior}. The realized edge-inclusion prior therefore
+differs from the nominal edge prior for every edge prior: at three
+variables a uniform \code{beta_bernoulli_prior(1, 1)} realizes about
+0.37, and a fixed \code{bernoulli_prior(0.5)} at \eqn{\delta = 0}
+realizes about 0.27. The correction keeps the learned inclusion
+probability coherent with the joint model; it does not restore the
+nominal prior, and with a fixed inclusion probability nothing
+absorbs the tilt. A message reports this when \code{verbose = TRUE};
+\code{\link{extract_prior_inclusion_probabilities}} returns the
+realized prior.}
+\item{"hierarchical"}{(default) The hierarchical specification
+\eqn{p(\Gamma) \, p(K \mid \Gamma)} with \eqn{p(K \mid \Gamma)}
+normalized per graph, so the graph marginal is exactly the edge
+prior \eqn{\pi(\Gamma)}. Each edge move evaluates the normalizer
+ratio with a fast local approximation: a theta-independent
+absolute-moment surface built once at the start of the analysis from
+block-Gibbs anchors on components of up to 80 variables. Within that
+anchored range the surface tracks a block-Gibbs reference to about
+0.003 nats. It is scored against that reference at five
+\code{gamma_prior()} diagonal shapes -- 0.5, 1, 2, 3 and 5 -- and
+deploys on the range those points span up to shape 10, with the
+interior interpolated rather than measured. At shape 10 the guarantee
+is of a different kind: the diagonal has concentrated far enough that
+the whole mediated correction is bounded by 0.00028 nats over the
+scored blocks at a standardized rate (\code{eta}) of 2 or below, so
+there is little left to approximate rather than a tight approximation
+of something large. That bound is set at the top of the scored rate
+range, since the correction grows with the rate, and does not extend
+above it. Above shape 10 that bound is what the fit deploys: the
+mediating correction is switched off and every edge is served the
+isolated-edge ratio, which is exact for an edge with no mediating
+structure, so the whole error is the mediation it drops -- at most
+0.00028 nats, measured at shapes 12, 15 and 20. The alternative there
+is not a coarser correction but a broken one: the additive kernel
+returns zero on a large common-neighbour block and discards the whole
+ratio. A shape below 0.5 keeps that additive kernel, and shares its
+limitation: on a fully connected common-neighbour block the additive
+ratio collapses to zero above a size that depends on the cell and on
+\code{delta}, measured between about 12 and 32 variables. Because
+\code{delta} defaults to \eqn{0.5 \log p}, small models are not
+exposed at all -- the largest possible block sits below the boundary --
+and the collapse becomes reachable from roughly 20 to 30 variables
+upward. A fit reports it (\code{n_collapsed}). A mediating block beyond
+the anchored size range is predicted by continuing
+the surface along its own boundary slope, measured at blocks of 90 to
+150 variables at a median of 0.0006 nats and at most 0.0011 for
+common-neighbour blocks, and a median of 0.0043 and at most 0.0060 for
+bipartite ones: bounded and far tighter than the
+alternatives, but outside the in-range figure, and reported by a note
+when a fit relies on it. A fit reaches that regime only with a dense
+posterior on many variables; sparse graphs never do. A trust gauge audits the approximation after
+sampling on two channels: the rate at which the chain's edge
+decisions would differ under the exact calculation, and the projected
+distortion of the inclusion probabilities from the measured error
+under the edge prior's feedback
+(\code{\link{summarize_zratio_gauge}}). The summary is returned as
+\code{fit$zratio_diag} and issues print like other sampler warnings.
+The gauge runs by default; \code{options(bgms.zratio_gauge_sweeps =
+      0L)} turns it off, and \code{fit$zratio_diag} is then \code{NULL}.
+Its cost is fixed per chain rather than proportional to \code{iter}:
+zero on a sparse posterior, where no mediating block is non-trivial
+and the ratio is exact, and about 5-10 seconds per chain on a dense
+posterior at 100-200 variables. That is negligible on a
+production-length fit and noticeable on a short exploratory one,
+which is what the off switch is for.
+Requires a \code{normal_prior()} or \code{cauchy_prior()} interaction
+prior; a \code{beta_prime_prior()} slab is rejected. On mixed data the
+normalizer lives on the continuous block \eqn{K_{yy}}, so the
+Z-ratio enters the continuous-continuous edge moves only, with the
+mediating-block counts read off the continuous subgraph; discrete
+and cross edges are unchanged.}
+}
+Default: \code{"hierarchical"}, so a continuous fit targets the nominal
+edge prior out of the box and pays for the approximation and its trust
+gauge; \code{"joint"} is the un-approximated alternative and remains
+fully supported.
 
-\item{beta_bernoulli_alpha_between, beta_bernoulli_beta_between}{Double.
-Shape parameters for the between-cluster edge inclusion probabilities in the
-Stochastic-Block prior. Must be positive.
-Default: \code{beta_bernoulli_alpha_between = 1} and \code{beta_bernoulli_beta_between = 1}}
-
-\item{dirichlet_alpha}{Double. Concentration parameter of the Dirichlet
-prior on block assignments (used with the Stochastic Block model).
-Default: \code{1}.}
-
-\item{lambda}{Double. Rate of the zero-truncated Poisson prior on the
-number of clusters in the Stochastic Block Model. Default: \code{1}.}
+The two specifications differ only in how \eqn{p(K \mid \Gamma)} is
+normalized across graphs, so they differ only where the sampler moves
+between graphs. Where it does not, \code{"hierarchical"} is accepted and
+the fit is the same under either value:
+\itemize{
+\item With \code{edge_selection = FALSE} the graph is fixed, there is
+nothing to normalize across, and the two specifications coincide
+exactly. The correction surface and the trust gauge are skipped, so
+the fit does not pay to build them, and \code{fit$zratio_diag} is
+\code{NULL}.
+\item With no continuous precision block — an ordinal model, or mixed
+data with fewer than two continuous variables — there is no \eqn{K}
+for the argument to refer to. A message reports this when the
+argument was named and \code{verbose = TRUE}; inheriting the default
+is silent, since the default is not a request.
+}
+The slab is checked only where the choice is meaningful, so a
+\code{beta_prime_prior()} is rejected on a continuous block under edge
+selection and tolerated where the argument has no referent.}
 
 \item{na_action}{Character. Specifies missing data handling. Either
 \code{"listwise"} (drop rows with missing values) or \code{"impute"}
@@ -108,34 +298,40 @@ number of clusters in the Stochastic Block Model. Default: \code{1}.}
 \item{update_method}{Character. Specifies how the MCMC sampler updates
 the model parameters:
 \describe{
-  \item{"adaptive-metropolis"}{Componentwise adaptive Metropolis–Hastings
-    with Robbins–Monro proposal adaptation.}
-  \item{"hamiltonian-mc"}{Hamiltonian Monte Carlo with fixed path length
-    (number of leapfrog steps set by \code{hmc_num_leapfrogs}).}
-  \item{"nuts"}{The No-U-Turn Sampler, an adaptive form of HMC with
-    dynamically chosen trajectory lengths.}
+\item{"adaptive-metropolis"}{Componentwise adaptive Metropolis--Hastings
+with Robbins--Monro proposal adaptation.}
+\item{"nuts"}{The No-U-Turn Sampler, a gradient-based sampler available
+for all variable types, including under edge selection. Continuous
+precision blocks use a free-element Cholesky parameterization that
+keeps the precision matrix positive-definite and encodes excluded
+edges through per-column null-space coordinates.}
+\item{"gibbs"}{A Gibbs sampler for the Gaussian graphical model, with a
+conjugate row-block draw of the precision matrix. Available only for
+all-continuous data with a Normal or Cauchy (slab) interaction prior
+and a Gamma scale prior on the precision diagonal. Edge selection is
+supported for both slabs; the graph is updated by a full-conditional
+birth/death between-step (a Cauchy slab uses its scale-mixture
+representation).}
 }
 Default: \code{"nuts"}.}
 
 \item{target_accept}{Numeric between 0 and 1. Target acceptance rate for
 the sampler. Defaults are set automatically if not supplied:
-\code{0.44} for adaptive Metropolis, \code{0.65} for HMC,
-and \code{0.80} for NUTS.}
-
-\item{hmc_num_leapfrogs}{Integer. Number of leapfrog steps for Hamiltonian
-Monte Carlo. Must be positive. Default: \code{100}.}
+\code{0.44} for adaptive Metropolis and \code{0.80} for NUTS.}
 
 \item{nuts_max_depth}{Integer. Maximum tree depth in NUTS. Must be positive.
 Default: \code{10}.}
 
 \item{learn_mass_matrix}{Logical. If \code{TRUE}, adapt a diagonal mass
-matrix during warmup (HMC/NUTS only). If \code{FALSE}, use the identity
+matrix during warmup (NUTS only). If \code{FALSE}, use the identity
 matrix. Default: \code{TRUE}.}
 
 \item{chains}{Integer. Number of parallel chains to run. Default: \code{4}.}
 
 \item{cores}{Integer. Number of CPU cores for parallel execution.
-Default: \code{parallel::detectCores()}.}
+Sampling uses \code{min(cores, chains)}; some computations outside of
+sampling (such as building the edge-selection prior correction table)
+use all \code{cores}. Default: \code{parallel::detectCores()}.}
 
 \item{display_progress}{Character. Controls progress reporting during
 sampling. Options: \code{"per-chain"} (separate bar per chain),
@@ -143,95 +339,147 @@ sampling. Options: \code{"per-chain"} (separate bar per chain),
 Default: \code{"per-chain"}.}
 
 \item{seed}{Optional integer. Random seed for reproducibility. Must be a
-single non-negative integer.}
-
-\item{standardize}{Logical. If \code{TRUE}, the Cauchy prior scale for each
-pairwise interaction is adjusted based on the range of response scores.
-Variables with more response categories have larger score products
-\eqn{x_i \cdot x_j}, which typically correspond to smaller interaction
-effects \eqn{\sigma_{ij}}. Without standardization, a fixed prior scale
-is relatively wide for these smaller effects, resulting in less shrinkage
-for high-category pairs and more shrinkage for low-category pairs.
-Standardization scales the prior proportionally to the maximum score
-product, ensuring equivalent relative shrinkage across all pairs.
-After internal recoding, regular ordinal variables have scores
-\eqn{0, 1, \ldots, m}. The adjusted scale for the interaction between
-variables \eqn{i} and \eqn{j} is \code{pairwise_scale * m_i * m_j},
-so that \code{pairwise_scale} itself applies to the unit interval case
-(binary variables where \eqn{m_i = m_j = 1}). For Blume-Capel variables
-with reference category \eqn{b}, scores are centered as
-\eqn{-b, \ldots, m-b}, and the adjustment uses the maximum absolute
-product of the score endpoints. For mixed pairs, ordinal variables use
-raw score endpoints \eqn{(0, m)} and Blume-Capel variables use centered
-score endpoints \eqn{(-b, m-b)}.
-Default: \code{FALSE}.}
+single non-negative integer. On Windows with \code{RcppParallel} >= 6.0.0,
+a fixed seed reproduces a run only at the same \code{cores} setting: under
+the oneTBB 2022 scheduler, runs at different core counts are statistically
+equivalent but not bit-for-bit identical. Results are bit-reproducible for
+a given installed binary; they are not portable across compilers or
+optimization settings — a rebuilt binary may produce different draws from
+the same seed, with any differences concentrated where the posterior is
+weakly identified.}
 
 \item{verbose}{Logical. If \code{TRUE}, prints informational messages
 during data processing (e.g., missing data handling, variable recoding).
 Defaults to \code{getOption("bgms.verbose", TRUE)}. Set
 \code{options(bgms.verbose = FALSE)} to suppress messages globally.}
 
-\item{interaction_scale, burnin, save, threshold_alpha, threshold_beta}{`r lifecycle::badge("deprecated")`
-Deprecated arguments as of **bgms 0.1.6.0**.
-Use `pairwise_scale`, `warmup`, `main_alpha`, and `main_beta` instead.}
+\item{progress_callback}{An optional R function with signature
+\code{function(completed, total)} that is called at regular intervals
+during sampling, where \code{completed} is the number of iterations
+completed across all chains and \code{total} is the total number of
+iterations. Useful for external front-ends (e.g., JASP) that supply
+their own progress reporting.
+When \code{NULL} (the default), no callback is invoked.}
+
+\item{pairwise_scale}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Double.
+Scale of the Cauchy prior for pairwise
+interaction parameters. Use \code{interaction_prior} instead.
+Default: \code{1}.}
+
+\item{main_alpha, main_beta}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Double.
+Shape parameters of the beta-prime prior for threshold parameters.
+Use \code{threshold_prior} instead. Defaults: \code{main_alpha = 0.5}
+and \code{main_beta = 0.5}.}
+
+\item{inclusion_probability}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Numeric
+scalar. Use \code{edge_prior = bernoulli_prior(inclusion_probability)}
+instead. Default: \code{0.5}.}
+
+\item{beta_bernoulli_alpha, beta_bernoulli_beta}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Double. Use
+\code{edge_prior = beta_bernoulli_prior(alpha, beta)} instead.
+Defaults: \code{1}.}
+
+\item{beta_bernoulli_alpha_between, beta_bernoulli_beta_between}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Double. Use
+\code{edge_prior = sbm_prior(alpha_between, beta_between)} instead.
+Defaults: \code{1}.}
+
+\item{dirichlet_alpha}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Double. Use
+\code{edge_prior = sbm_prior(dirichlet_alpha = ...)} instead.
+Default: \code{1}.}
+
+\item{lambda}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Double. Use
+\code{edge_prior = sbm_prior(lambda = ...)} instead.
+Default: \code{1}.}
+
+\item{interaction_scale, burnin, save, threshold_alpha, threshold_beta}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}}
+Deprecated arguments as of \strong{bgms 0.1.6.0}.
+Use \code{interaction_prior}, \code{warmup}, and \code{threshold_prior} instead.}
+
+\item{standardize}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Logical. Deprecated
+as of \strong{bgms 0.2.0.0}. Through 0.1.6.3, \code{TRUE} adjusted each
+pair's interaction prior scale by the product of the two variables'
+maximum scores. Pairwise interactions are now on the association scale
+and share one prior scale, so the per-pair adjustment is gone:
+\code{standardize = FALSE} (the old default) warns and proceeds, while
+\code{standardize = TRUE} errors and points to setting the scale directly
+through \code{interaction_prior}.}
 }
 \value{
-A list of class \code{"bgms"} with posterior summaries, posterior mean
-matrices, and access to raw MCMC draws. The object can be passed to
+An S7 object of class \code{bgms} with posterior summaries, posterior mean
+matrices, and access to raw MCMC draws. Its fields are accessible with
+\code{$} and \code{[[} for backward compatibility, and it can be passed to
 \code{print()}, \code{summary()}, and \code{coef()}.
 
 Main components include:
 \itemize{
-  \item \code{posterior_summary_main}: Data frame with posterior summaries
-    (mean, sd, MCSE, ESS, Rhat) for category threshold parameters.
-  \item \code{posterior_summary_pairwise}: Data frame with posterior
-    summaries for pairwise interaction parameters.
-  \item \code{posterior_summary_indicator}: Data frame with posterior
-    summaries for edge inclusion indicators (if \code{edge_selection = TRUE}).
+\item \code{posterior_summary_main}: Data frame with posterior summaries
+(mean, sd, MCSE, ESS, Rhat) for main-effect parameters.
+For OMRF models these are category thresholds;
+for mixed MRF models these are discrete thresholds and
+continuous means. \code{NULL} for GGM models (no main effects).
+\item \code{posterior_summary_quadratic}: Data frame with posterior
+summaries for the residual variance parameters (GGM and mixed MRF).
+\code{NULL} for OMRF models.
+\item \code{posterior_summary_pairwise}: Data frame with posterior
+summaries for partial association parameters.
+\item \code{posterior_summary_indicator}: Data frame with posterior
+summaries for edge inclusion indicators (if \code{edge_selection = TRUE}).
 
-  \item \code{posterior_mean_main}: Matrix of posterior mean thresholds
-    (rows = variables, cols = categories or parameters).
-  \item \code{posterior_mean_pairwise}: Symmetric matrix of posterior mean
-    pairwise interaction strengths.
-  \item \code{posterior_mean_indicator}: Symmetric matrix of posterior mean
-    inclusion probabilities (if edge selection was enabled).
+\item \code{posterior_mean_main}: Posterior mean of main-effect
+parameters. \code{NULL} for GGM models. For OMRF: a matrix
+(p x max_categories) of category thresholds. For mixed MRF: a list
+with \code{$discrete} (threshold matrix) and \code{$continuous}
+(q x 1 matrix of means).
+\item \code{posterior_mean_pairwise}: Symmetric matrix of posterior
+mean partial associations (zero diagonal). For continuous variables
+these are half the negated precision off-diagonal,
+\eqn{\omega_{jk} = -\Theta_{jk}/2}{omega_jk = -Theta_jk / 2}; for
+discrete variables these are half the log adjacent-category odds
+ratio. Use
+\code{\link[=extract_precision]{extract_precision()}}, \code{\link[=extract_partial_correlations]{extract_partial_correlations()}}, or
+\code{\link[=extract_log_odds]{extract_log_odds()}} to convert to interpretable scales.
+\item \code{posterior_mean_residual_variance}: Named numeric vector of
+posterior mean residual variances \eqn{1/\Theta_{ii}}{1/Theta_ii}.
+Present for GGM and mixed MRF models; \code{NULL} for OMRF.
+\item \code{posterior_mean_indicator}: Symmetric matrix of posterior mean
+inclusion probabilities (if edge selection was enabled).
 
-  \item  Additional summaries returned when
-    \code{edge_prior = "Stochastic-Block"}. For more details about this prior
-    see \insertCite{SekulovskiEtAl_2025;textual}{bgms}.
-   \itemize{
-      \item \code{posterior_summary_pairwise_allocations}: Data frame with
-      posterior summaries (mean, sd, MCSE, ESS, Rhat) for the pairwise
-      cluster co-occurrence of the nodes. This serves to indicate
-      whether the estimated posterior allocations,co-clustering matrix
-      and posterior cluster probabilities (see blow) have converged.
-      \item \code{posterior_coclustering_matrix}: a symmetric matrix of
-      pairwise proportions of occurrence of every variable. This matrix
-      can be plotted to visually inspect the estimated number of clusters
-      and visually inspect nodes that tend to switch clusters.
-      \item \code{posterior_mean_allocations}: A vector with the posterior mean
-      of the cluster allocations of the nodes. This is calculated using the method
-      proposed in \insertCite{Dahl2009;textual}{bgms}.
-      \item \code{posterior_mode_allocations}: A vector with the posterior
-       mode of the cluster allocations of the nodes.
-      \item \code{posterior_num_blocks}: A data frame with the estimated
-      posterior inclusion probabilities for all the possible number of clusters.
-      }
-  \item \code{raw_samples}: A list of raw MCMC draws per chain:
-    \describe{
-      \item{\code{main}}{List of main effect samples.}
-      \item{\code{pairwise}}{List of pairwise effect samples.}
-      \item{\code{indicator}}{List of indicator samples
-        (if edge selection enabled).}
-      \item{\code{allocations}}{List of cluster allocations
-        (if SBM prior used).}
-      \item{\code{nchains}}{Number of chains.}
-      \item{\code{niter}}{Number of post–warmup iterations per chain.}
-      \item{\code{parameter_names}}{Named lists of parameter labels.}
-    }
+\item  Additional summaries returned when
+\code{edge_prior = "Stochastic-Block"}. For more details about this prior
+see \insertCite{SekulovskiEtAl_2025;textual}{bgms}.
+\itemize{
+\item \code{posterior_summary_pairwise_allocations}: Data frame with
+posterior summaries (mean, sd, MCSE, ESS, Rhat) for the pairwise
+cluster co-occurrence of the nodes. This serves to indicate
+whether the estimated posterior allocations,co-clustering matrix
+and posterior cluster probabilities (see blow) have converged.
+\item \code{posterior_mean_coclustering_matrix}: a symmetric matrix of
+pairwise proportions of occurrence of every variable. This matrix
+can be plotted to visually inspect the estimated number of clusters
+and visually inspect nodes that tend to switch clusters.
+\item \code{posterior_mean_allocations}: A vector with the posterior mean
+of the cluster allocations of the nodes. This is calculated using the method
+proposed in \insertCite{Dahl2009;textual}{bgms}.
+\item \code{posterior_mode_allocations}: A vector with the posterior
+mode of the cluster allocations of the nodes.
+\item \code{posterior_num_blocks}: A data frame with the estimated
+posterior inclusion probabilities for all the possible number of clusters.
+}
+\item \code{raw_samples}: A list of raw MCMC draws per chain:
+\describe{
+\item{\code{main}}{List of main effect samples.}
+\item{\code{pairwise}}{List of pairwise effect samples.}
+\item{\code{indicator}}{List of indicator samples
+(if edge selection enabled).}
+\item{\code{allocations}}{List of cluster allocations
+(if SBM prior used).}
+\item{\code{nchains}}{Number of chains.}
+\item{\code{niter}}{Number of post--warmup iterations per chain.}
+\item{\code{parameter_names}}{Named lists of parameter labels.}
+}
 
-  \item \code{arguments}: A list of function call arguments and metadata
-    (e.g., number of variables, warmup, sampler settings, package version).
+\item \code{arguments}: A list of function call arguments and metadata
+(e.g., number of variables, warmup, sampler settings, package version).
 }
 
 The \code{summary()} method prints formatted posterior summaries, and
@@ -241,180 +489,27 @@ NUTS diagnostics (tree depth, divergences, energy, E-BFMI) are included
 in \code{fit$nuts_diag} if \code{update_method = "nuts"}.
 }
 \description{
-The \code{bgm} function estimates the pseudoposterior distribution of
-category thresholds (main effects) and pairwise interaction parameters of a
-Markov Random Field (MRF) model for binary and/or ordinal variables.
-Optionally, it performs Bayesian edge selection using spike-and-slab
-priors to infer the network structure.
+The \code{bgm} function estimates the pseudoposterior distribution of the
+parameters of a Markov Random Field (MRF) for binary, ordinal, continuous,
+or mixed (discrete and continuous) variables. Optionally, it performs
+Bayesian edge selection using discrete spike-and-slab priors to infer the
+network structure.
 }
 \details{
-This function models the joint distribution of binary and ordinal variables
-using a Markov Random Field, with support for edge selection through Bayesian
-variable selection. The statistical foundation of the model is described in
-\insertCite{MarsmanVandenBerghHaslbeck_2025;textual}{bgms}, where the ordinal
-MRF model and its Bayesian estimation procedure were first introduced. While
-the implementation in \pkg{bgms} has since been extended and updated (e.g.,
-alternative priors, parallel chains, HMC/NUTS warmup), it builds on that
-original framework.
+Depending on the variable types, the model is an ordinal MRF, a Gaussian
+graphical model (GGM), or a mixed MRF. Both regular ordinal variables and
+Blume--Capel ordinal variables (with a baseline category) are supported.
 
-Key components of the model are described in the sections below.
+Edge selection uses spike-and-slab priors with Bernoulli, Beta-Bernoulli,
+or Stochastic-Block priors on the edge inclusion indicators. Parameters are
+sampled with NUTS (default) or adaptive Metropolis--Hastings, with a
+multi-stage warmup schedule. Missing data can be handled via listwise
+deletion or Gibbs imputation.
+
+For full details on model specification, prior choices, warmup, and
+output interpretation, see the package website at
+\url{https://bayesian-graphical-modelling-lab.github.io/bgms-docs/}.
 }
-\section{Ordinal Variables}{
-
-The function supports two types of ordinal variables:
-
-\strong{Regular ordinal variables}:
-Assigns a category threshold parameter to each response category except the
-lowest. The model imposes no additional constraints on the distribution of
-category responses.
-
-\strong{Blume-Capel ordinal variables}:
-Assume a baseline category (e.g., a “neutral” response) and score responses
-by distance from this baseline. Category thresholds are modeled as:
-
-\deqn{\mu_{c} = \alpha \cdot (c-b) + \beta \cdot (c - b)^2}
-
-where:
-\itemize{
-  \item \eqn{\mu_{c}}: category threshold for category \eqn{c}
-  \item \eqn{\alpha}: linear trend across categories
-  \item \eqn{\beta}: preference toward or away from the baseline
-   \itemize{
-     \item If \eqn{\beta < 0}, the model favors responses near the baseline
-     category;
-     \item if \eqn{\beta > 0}, it favors responses farther away (i.e.,
-     extremes).
-   }
-  \item \eqn{b}: baseline category
-}
-Accordingly, pairwise interactions between Blume-Capel variables are modeled
-in terms of \eqn{c-b} scores.
-}
-
-\section{Edge Selection}{
-
-When \code{edge_selection = TRUE}, the function performs Bayesian variable
-selection on the pairwise interactions (edges) in the MRF using
-spike-and-slab priors.
-
-Supported priors for edge inclusion:
-\itemize{
-  \item \strong{Bernoulli}: Fixed inclusion probability across edges.
-  \item \strong{Beta-Bernoulli}: Inclusion probability is assigned a Beta
-  prior distribution.
-  \item \strong{Stochastic-Block}: Cluster-based edge priors with Beta,
-  Dirichlet, and Poisson hyperpriors.
-}
-
-All priors operate via binary indicator variables controlling the inclusion
-or exclusion of each edge in the MRF.
-}
-
-\section{Prior Distributions}{
-
-
-\itemize{
-  \item \strong{Pairwise effects}: Modeled with a Cauchy (slab) prior.
-  \item \strong{Main effects}: Modeled using a beta-prime
-  distribution.
-  \item \strong{Edge indicators}: Use either a Bernoulli, Beta-Bernoulli, or
-  Stochastic-Block prior (as above).
-}
-}
-
-\section{Sampling Algorithms and Warmup}{
-
-
-Parameters are updated within a Gibbs framework, but the conditional
-updates can be carried out using different algorithms:
-\itemize{
-  \item \strong{Adaptive Metropolis–Hastings}: Componentwise random–walk
-    updates for main effects and pairwise effects. Proposal standard
-    deviations are adapted during burn–in via Robbins–Monro updates
-    toward a target acceptance rate.
-
-  \item \strong{Hamiltonian Monte Carlo (HMC)}: Joint updates of all
-    parameters using fixed–length leapfrog trajectories. Step size is
-    tuned during warmup via dual–averaging; the diagonal mass matrix can
-    also be adapted if \code{learn_mass_matrix = TRUE}.
-
-  \item \strong{No–U–Turn Sampler (NUTS)}: An adaptive extension of HMC
-    that dynamically chooses trajectory lengths. Warmup uses a staged
-    adaptation schedule (fast–slow–fast) to stabilize step size and, if
-    enabled, the mass matrix.
-}
-
-When \code{edge_selection = TRUE}, updates of edge–inclusion indicators
-are carried out with Metropolis–Hastings steps. These are switched on
-after the core warmup phase, ensuring that graph updates occur only once
-the samplers’ tuning parameters (step size, mass matrix, proposal SDs)
-have stabilized.
-
-After warmup, adaptation is disabled. Step size and mass matrix are
-fixed at their learned values, and proposal SDs remain constant.
-}
-
-\section{Warmup and Adaptation}{
-
-
-The warmup procedure in \code{bgm} uses a multi-stage adaptation
-schedule \insertCite{stan-manual}{bgms}. Warmup iterations are
-split into several phases:
-
-\itemize{
-  \item \strong{Stage 1 (fast adaptation)}: A short initial interval
-    where only step size (for HMC/NUTS) is adapted, allowing the chain
-    to move quickly toward the typical set.
-
-  \item \strong{Stage 2 (slow windows)}: A sequence of expanding,
-    memoryless windows where both step size and, if
-    \code{learn_mass_matrix = TRUE}, the diagonal mass matrix are
-    adapted. Each window ends with a reset of the dual–averaging scheme
-    for improved stability.
-
-  \item \strong{Stage 3a (final fast interval)}: A short interval at the
-    end of the core warmup where the step size is adapted one final time.
-
-  \item \strong{Stage 3b (proposal–SD tuning)}: Only active when
-    \code{edge_selection = TRUE} under HMC/NUTS. In this phase,
-    Robbins–Monro adaptation of proposal standard deviations is
-    performed for the Metropolis steps used in edge–selection moves.
-
-  \item \strong{Stage 3c (graph selection warmup)}: Also only relevant
-    when \code{edge_selection = TRUE}. At the start of this phase, a
-    random graph structure is initialized, and Metropolis–Hastings
-    updates for edge inclusion indicators are switched on.
-}
-
-When \code{edge_selection = FALSE}, the total number of warmup iterations
-equals the user–specified \code{burnin}. When \code{edge_selection = TRUE}
-and \code{update_method} is \code{"nuts"} or \code{"hamiltonian-mc"},
-the schedule automatically appends additional Stage-3b and Stage-3c
-intervals, so the total warmup is strictly greater than the requested
-\code{burnin}.
-
-After all warmup phases, the sampler transitions to the sampling phase
-with adaptation disabled. Step size and mass matrix (for HMC/NUTS) are
-fixed at their learned values, and proposal SDs remain constant.
-
-This staged design improves stability of proposals and ensures that both
-local parameters (step size) and global parameters (mass matrix, proposal
-SDs) are tuned before collecting posterior samples.
-
-For adaptive Metropolis–Hastings runs, step size and mass matrix
-adaptation are not relevant. Proposal SDs are tuned continuously during
-burn–in using Robbins–Monro updates, without staged fast/slow intervals.
-}
-
-\section{Missing Data}{
-
-
-If \code{na_action = "listwise"}, observations with missing values are
-removed.
-If \code{na_action = "impute"}, missing values are imputed during Gibbs
-sampling.
-}
-
 \examples{
 \donttest{
 # Run bgm on subset of the Wenchuan dataset
@@ -433,4 +528,8 @@ summary(fit)$pairwise
 }
 \seealso{
 \code{vignette("intro", package = "bgms")} for a worked example.
+
+Other model-fitting:
+\code{\link[=bgmCompare]{bgmCompare()}}
 }
+\concept{model-fitting}

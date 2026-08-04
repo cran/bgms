@@ -25,15 +25,16 @@
 
 \item{method}{Character string specifying which parameter estimates to use:
 \describe{
-  \item{\code{"posterior-mean"}}{Use posterior mean parameters (faster,
-    single simulation).}
-  \item{\code{"posterior-sample"}}{Sample from posterior draws, producing
-    one dataset per draw (accounts for parameter uncertainty). This method
-    uses parallel processing when \code{cores > 1}.}
+\item{\code{"posterior-mean"}}{Use posterior mean parameters (faster,
+single simulation).}
+\item{\code{"posterior-sample"}}{Sample from posterior draws, producing
+one dataset per draw (accounts for parameter uncertainty). This method
+uses parallel processing when \code{cores > 1}.}
 }}
 
 \item{ndraws}{Number of posterior draws to use when
-\code{method = "posterior-sample"}. If \code{NULL}, uses all available draws.}
+\code{method = "posterior-sample"}. If \code{NULL},
+uses all available draws.}
 
 \item{iter}{Number of Gibbs iterations for equilibration before collecting
 samples. Default: \code{1000}.}
@@ -54,36 +55,57 @@ If \code{method = "posterior-mean"}: A matrix with \code{nsim} rows and
 
 If \code{method = "posterior-sample"}: A list of matrices, one per posterior
 draw, each with \code{nsim} rows and \code{p} columns.
+
+Discrete columns are returned on the original category scale of the training
+data (the values supplied to \code{bgm()}), so the output can be passed
+straight to \code{predict()}. For mixed MRF models, discrete columns contain
+non-negative integers and continuous columns contain real-valued
+observations, ordered as in the original data.
 }
 \description{
 Generates new observations from the Markov Random Field model using the
-estimated parameters from a fitted \code{bgms} object.
+estimated parameters from a fitted \code{bgms} object. Supports ordinal,
+Blume-Capel, continuous (GGM), and mixed MRF models.
 }
 \details{
-This function uses the estimated interaction and threshold parameters to
-generate new data via Gibbs sampling. When \code{method = "posterior-sample"},
-parameter uncertainty is propagated to the simulated data by using different
+This function uses the estimated interaction and threshold
+parameters to generate new data via Gibbs sampling. When
+\code{method = "posterior-sample"}, parameter uncertainty is
+propagated to the simulated data by using different
 posterior draws. Parallel processing is available for this method via the
 \code{cores} argument.
 }
 \examples{
 \donttest{
 # Fit a model
-fit <- bgm(x = Wenchuan[, 1:5], chains = 2)
+fit = bgm(x = Wenchuan[, 1:5], chains = 2)
 
 # Simulate 100 new observations using posterior means
-new_data <- simulate(fit, nsim = 100)
+new_data = simulate(fit, nsim = 100)
 
 # Simulate with parameter uncertainty (10 datasets)
-new_data_list <- simulate(fit, nsim = 100, method = "posterior-sample", ndraws = 10)
+new_data_list = simulate(
+  fit,
+  nsim = 100,
+  method = "posterior-sample", ndraws = 10
+)
 
 # Use parallel processing for faster simulation
-new_data_list <- simulate(fit, nsim = 100, method = "posterior-sample",
-                          ndraws = 100, cores = 2)
+new_data_list = simulate(fit,
+  nsim = 100, method = "posterior-sample",
+  ndraws = 100, cores = 2
+)
 }
 
 }
 \seealso{
 \code{\link{predict.bgms}} for computing conditional probabilities,
-  \code{\link{simulate_mrf}} for simulation with user-specified parameters.
+\code{\link{simulate_mrf}} for simulation with user-specified parameters.
+
+Other prediction:
+\code{\link[=predict.bgmCompare]{predict.bgmCompare()}},
+\code{\link[=predict.bgms]{predict.bgms()}},
+\code{\link[=simulate.bgmCompare]{simulate.bgmCompare()}},
+\code{\link[=simulate_mrf]{simulate_mrf()}}
 }
+\concept{prediction}

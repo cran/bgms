@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+
+
+<title>Checking Prior Sensitivity</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Checking Prior Sensitivity</h1>
+
+
+
+<div id="why-the-scale-is-the-readers-problem" class="section level1">
+<h1>Why the scale is the reader’s problem</h1>
+<p>An analysis with <code>bgm()</code> states its assumptions as prior
+distributions, so the natural question is whether the conclusions depend
+on them. The interaction (pairwise) prior distribution is the one to
+worry about first, because its scale encodes how large you expect edge
+weights to be, and that expectation feeds directly into every inclusion
+verdict.</p>
+<p>The scale is interpretable. A pairwise interaction in
+<code>bgm()</code> is half the log odds ratio between adjacent response
+categories, so the default <code>normal_prior(scale = 1)</code> places
+about two thirds of its prior mass on odds ratios between roughly 1/7
+and 7. A reader who thinks edges are typically weaker wants a narrower
+scale; a reader who expects strong dependencies wants a wider one. If
+the inclusion verdicts survive that disagreement, they belong to the
+data. If they move, they belong to the scale, and the analysis should
+say so.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">library</span>(bgms)</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>data <span class="ot">=</span> Wenchuan</span></code></pre></div>
+</div>
+<div id="the-check" class="section level1">
+<h1>The check</h1>
+<p><code>prior_sensitivity_check()</code> is that comparison, automated.
+It recovers each edge’s continuous inclusion-Bayes-factor curve across a
+range of slab scales and classifies how each verdict behaves along it.
+No special fit is required: it works on any <code>bgm()</code> fit made
+with edge selection — in the simplest case
+<code>prior_sensitivity_check(bgm(data))</code>.</p>
+<p>The run below is deliberately small: the first six Wenchuan
+variables, two chains, and refits long enough for the per-anchor
+convergence gate to clear on so short a fit. Everything about how to
+read the report carries over to a full analysis. It was run once when
+this vignette was written rather than on every build — the answer does
+not change, and an installing user should not pay for it — so the call
+is shown as you would type it and the report beneath it is the object
+that call returned.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a>fit <span class="ot">=</span> <span class="fu">bgm</span>(data[, <span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>], <span class="at">seed =</span> <span class="dv">1234</span>, <span class="at">chains =</span> <span class="dv">2</span>, <span class="at">cores =</span> <span class="dv">2</span>,</span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>          <span class="at">display_progress =</span> <span class="st">&quot;none&quot;</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>ps <span class="ot">=</span> <span class="fu">prior_sensitivity_check</span>(fit, <span class="at">seed =</span> <span class="dv">1234</span>, <span class="at">iter =</span> <span class="dv">3000</span>, <span class="at">warmup =</span> <span class="dv">1000</span>,</span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>                             <span class="at">cores =</span> <span class="dv">2</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>ps</span></code></pre></div>
+<pre><code>#&gt; Prior sensitivity check: are the edge verdicts robust to the slab scale?
+#&gt; Bayes-factor curve from 0.4x to 2.5x the chosen scale (anchors at 0.4x, 0.63x,
+#&gt; 1x, 1.6x, 2.5x; the 1x anchor is the original fit); 15 edges.
+#&gt; 
+#&gt; 13 of 15 verdicts hold across the whole 0.4x-2.5x range; the exceptions are
+#&gt; named below.
+#&gt; 
+#&gt;   robust (same verdict at every scale)     13
+#&gt;   changed, within run-to-run noise          0
+#&gt;   changed, beyond run-to-run noise          2
+#&gt; 
+#&gt; 2 edges&#39; verdicts genuinely depend on the scale:
+#&gt;   edge            0.4x       0.63x      1x         1.6x       2.5x   
+#&gt;   dreams-physior  undecided  undecided  absence    absence    absence
+#&gt;   dreams-avoidth  undecided  undecided  undecided  undecided  absence
+#&gt; 
+#&gt; Verdict counts by scale (at the anchors):
+#&gt;             0.4x 0.63x 1x 1.6x 2.5x
+#&gt;   presence     9     9  9    9    9
+#&gt;   undecided    4     4  3    3    2
+#&gt;   absence      2     2  3    3    4
+#&gt; More absence at wider scales is expected: a wider slab strengthens evidence
+#&gt; against borderline edges.
+#&gt; 
+#&gt; Note: the chosen scale (1) is much wider than the estimated interactions (about
+#&gt; 0.201 [0.131, 0.309]); absence verdicts in particular depend on this choice.
+#&gt; 
+#&gt; Method:  43-point curve from 5 anchor fits (0.4x to 2.5x the chosen scale),
+#&gt;          joined by importance reweighting; the 1x anchor is the original fit.
+#&gt;          Points with reweighting effective sample size below 400 are not shown.
+#&gt; Refits:  5 nuts refits, warm-started from the original fit, 33 s total.
+#&gt; Noise:   two identical refits at 1.6x differed by up to 0.79 log BF across
+#&gt;          threshold-relevant edges; verdict moves smaller than that are reported
+#&gt;          as run-to-run noise, not prior sensitivity.
+#&gt;          1 edge saturated in one of the two and was left out of that spread.
+#&gt; See ?prior_sensitivity_check for the full construction.</code></pre>
+<p>The headline is the stability statement and the category counts: most
+verdicts are robust across the whole range, and the edges whose verdict
+genuinely depends on the scale are named, with their verdict at each
+anchor. The per-scale verdict table below them shows the expected drift:
+as the slab widens, evidence for inclusion weakens and edges move from
+undecided toward absence, since a wider slab penalizes the extra
+parameter an edge costs.</p>
+<div id="the-anchored-curve" class="section level2">
+<h2>The anchored curve</h2>
+<p>The continuous curve is what Bartos et al. present, and it is the
+deliverable here. A single fit cannot produce it for a global scale —
+reweighting one fit across the whole range collapses — so the curve is
+<em>anchored</em>: the model is fit at a handful of fixed scales (the
+log-spaced <code>anchors</code>, default
+<code>c(0.4, 0.63, 1, 1.6, 2.5)</code> times the chosen scale) and the
+values between anchors are filled in by importance reweighting.
+Reweighting a fixed-scale fit to a nearby scale needs only the per-draw
+slab-density ratios over the included edges; the likelihood cancels, so
+no extra fit is needed between anchors, and there is no normalizing
+constant to integrate.</p>
+<p>The chosen-scale (<code>1x</code>) anchor is the original fit itself
+— it is never refit — so the chosen-scale verdicts the check reports are
+<em>exactly</em> the analysis you already ran. Each other anchor is one
+short warm-started refit.</p>
+<p>Reweighting is only trustworthy near an anchor; far from every anchor
+the importance weights concentrate on a few draws and the estimate is
+unreliable. The check measures this with the importance effective sample
+size at each display point and <strong>masks any point below
+<code>ess_floor</code> (default 400) to <code>NA</code> rather than
+reporting a number</strong>. Log-spaced anchors make neighbouring usable
+ranges overlap, so the masked-out regions close up into a continuous
+curve; if two anchors are too far apart to overlap, the check warns and
+suggests adding an anchor.</p>
+</div>
+<div id="run-to-run-noise" class="section level2">
+<h2>Run-to-run noise</h2>
+<p>Verdict-identity comparisons are flaky by construction: an inclusion
+Bayes factor that sits within Monte Carlo error of a threshold can
+change category between reruns of the <em>same</em> prior, with no real
+sensitivity present. To calibrate that, the check repeats one anchor
+refit and takes the spread of <span class="math inline">\(|\Delta \log
+\mathrm{BF}|\)</span> between the two as the empirical noise band (its
+95th percentile is the figure the report’s <code>Noise:</code> line
+quotes, computed over edges whose evidence is near the decision
+thresholds).</p>
+<p>An edge is reported as “changed, beyond run-to-run noise” only if its
+verdict changes along the curve <em>and</em> its natural log
+Bayes-factor swing exceeds that band (and its own Monte Carlo error, and
+a small tolerance). An edge that flips inside the band is “changed,
+within run-to-run noise”: the check refuses to call it a move. This is
+what keeps a robustness tool from crying wolf on boundary edges. In the
+<code>$edges$mover</code> column these categories are stored as
+<code>stable</code>, <code>indistinguishable-from-wobble</code>, and
+<code>moved-beyond-wobble</code>.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="fu">plot</span>(ps)</span></code></pre></div>
+<p>The plot’s title states the answer. Each edge’s evidence curve runs
+across the anchored range with dots at the anchor scales, the undecided
+band shaded and the verdict zones labeled; edges whose verdict depends
+on the scale are colored and labeled by name, everything else is muted
+background, and any low-ESS curve points leave visible gaps.</p>
+<p>The per-edge table carries the chosen-scale verdict and natural log
+Bayes factor with its Monte Carlo standard error, the per-anchor verdict
+columns, the stability range, the mover category, and an
+<code>insufficient</code> flag for edges the fit cannot certify (its
+chains disagree, or the Bayes-factor band straddles a threshold); the
+report counts these as “not certifiable (too noisy to assess)” and names
+them, when there are any. The full display grid, the per-point
+importance ESS, and which anchor each point was read from are in
+<code>ps$multipliers</code>, <code>ps$curve$ess</code>, and
+<code>ps$curve$anchor_used</code>.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="fu">head</span>(ps<span class="sc">$</span>edges)</span></code></pre></div>
+</div>
+<div id="the-chosen-scale-versus-the-data" class="section level2">
+<h2>The chosen scale versus the data</h2>
+<p>One line of the report costs no refit: how the chosen scale compares
+with the size of the estimated interactions (the root-mean-square of the
+included interactions in the original fit, with an approximate standard
+error). When the chosen scale is far wider or narrower than that — more
+than about a factor of two — the report says so, because inclusion
+verdicts near the boundary then depend on the choice, and the curve
+shows by how much.</p>
+</div>
+<div id="cost-and-samplers" class="section level2">
+<h2>Cost and samplers</h2>
+<p>The chosen-scale anchor is the original fit, so it costs nothing to
+reuse; only the other anchors are refit. With warm starts each refit
+begins from the original fit’s per-chain end state, and an ordinal fit
+sampled with NUTS also carries the adapted step size and mass matrix, so
+a short warmup suffices. The anchors are refit one after another, each
+running its chains in parallel across <code>cores</code>, and on
+Wenchuan the whole check costs about one original fit of wall-clock. A
+fit sampled with adaptive Metropolis or Gibbs refits with the same
+sampler; when that makes the check cost more than about a minute, it
+suggests <code>refit_sampler = &quot;nuts&quot;</code>, which is sound because
+every comparison runs refit-against-refit — the original fit’s own draws
+are only ever reweighted, never compared against a differently-sampled
+refit. Continuous (GGM) and mixed-MRF fits refit cold.</p>
+<p>Because warm starts place every chain near the chosen-scale
+posterior, between-chain dispersion is reduced by construction, so
+split-<span class="math inline">\(\hat R\)</span> is a weakened
+diagnostic at the refits; the per-anchor convergence gate therefore also
+leans on the effective sample size and on per-chain verdict agreement.
+An anchor that fails its gate is dropped from the curve rather than
+folded in.</p>
+</div>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

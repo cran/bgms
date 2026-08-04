@@ -48,17 +48,17 @@
 #' \insertAllCited{}
 NULL
 
-#' ADHD Symptom Checklist for Children Aged 6–8 Years
+#' ADHD Symptom Checklist for Children Aged 6--8 Years
 #'
 #' This dataset includes ADHD symptom ratings for 355 children aged 6 to 8 years from the
-#' Children’s Attention Project (CAP) cohort \insertCite{Silk_2019_ADHD}{bgms}. The sample
+#' Children's Attention Project (CAP) cohort \insertCite{Silk_2019_ADHD}{bgms}. The sample
 #' consists of 146 children diagnosed with ADHD and 209 without a diagnosis. Symptoms were
 #' assessed through structured interviews with parents using the NIMH Diagnostic Interview
 #' Schedule for Children IV (DISC-IV) \insertCite{Shaffer_2000_nimh}{bgms}. The checklist
 #' includes 18 items: 9 Inattentive (I) and 9 Hyperactive/Impulsive (HI). Each item is binary
 #' (1 = present, 0 = absent).
 #'
-#' @format A matrix with 355 rows and 19 columns.
+#' @format A data frame with 355 rows and 19 columns.
 #' \describe{
 #'   \item{group}{ADHD diagnosis: 1 = diagnosed, 0 = not diagnosed}
 #'   \item{avoid}{Often avoids, dislikes, or is reluctant to engage in tasks
@@ -112,10 +112,10 @@ NULL
 #' ranging from 1 ("strongly disagree") to 7 ("strongly agree"). The scale was administered
 #' in either English \insertCite{Struk_2015_boredom}{bgms} or French (translated by \insertCite{Martarelli_2023_Boredom}{bgms}).
 #'
-#' @format A matrix with 986 rows and 9 columns. Each row corresponds to a respondent.
+#' @format A data frame with 986 rows and 9 columns. Each row corresponds to a respondent.
 #' \describe{
 #'   \item{language}{Language in which the SBPS was administered: "en" = English, "fr" = French}
-#'   \item{loose_ends}{I often find myself at “loose ends,” not knowing what to
+#'   \item{loose_ends}{I often find myself at "loose ends," not knowing what to
 #'   do.}
 #'   \item{entertain}{I find it hard to entertain myself.}
 #'   \item{repetitive}{Many things I have to do are repetitive and monotonous.}
